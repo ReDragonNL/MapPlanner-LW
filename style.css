@@ -23,35 +23,39 @@
 }
 
 html, body {
-  min-height: 100vh;
+  height: 100vh;
   background: var(--bg);
   color: var(--ink);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* ============================================================ */
 /* LAYOUT */
 /* ============================================================ */
 .layout {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  padding: 0 12px 20px;
+  padding: 0;
+  overflow: hidden;
 }
 
 #board {
   display: block;
-  margin: 20px auto;
+  margin: 10px auto;
   background: #2a2f45;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   touch-action: none;
+  width: 95vw !important;
+  max-width: 95vw !important;
+  height: auto !important;
 }
 
 /* ============================================================ */
@@ -686,6 +690,7 @@ footer {
   position: relative;
   z-index: 10;
   width: 100%;
+  min-height: 36px;
 }
 
 /* ============================================================ */
