@@ -256,49 +256,50 @@
   // ============================================================
   // CANVAS RESIZING & INITIALIZATION
   // ============================================================
-  Core.resizeCanvas = function() {
-    Core.dpr = window.devicePixelRatio || 1;
-    const top = document.querySelector('.topbar');
-    const footer = document.querySelector('footer');
-    const topH = top ? top.getBoundingClientRect().height : 0;
-    const footH = footer ? footer.getBoundingClientRect().height : 0;
-	const pad = 10;
-	const availW = window.innerWidth - 2 * pad;
-	const availH = window.innerHeight - topH - footH - pad - 20;
-	const w = Math.min(availW, availH);
-	Core.basePx = Math.max(320, Math.floor(w));
-    
-    Core.canvas.width = Math.round(Core.basePx * Core.dpr);
-    Core.canvas.height = Math.round(Core.basePx * Core.dpr);
-    Core.canvas.style.width = Core.basePx + 'px';
-    Core.canvas.style.height = Core.basePx + 'px';
+Core.resizeCanvas = function () {
+  Core.dpr = window.devicePixelRatio || 1;
 
-    const s = Core.cell();
-    const minCellPx = 12;
-    const desiredZoom = Math.max(1, minCellPx / s);
-    
-    if(!Core._initView) {
-      Core.zoom = desiredZoom;
-      Core.pan.x = 0;
-      Core.pan.y = 0;
-      Core._initView = true;
+  // compute available rectangle (full screen minus top bar & a small pad)
+  const top = document.querySelector('.topbar');
+  const footer = document.querySelector('footer');
+  const topH   = top ? Math.ceil(top.getBoundingClientRect().height) : 0;
+  const footH  = footer ? Math.ceil(footer.getBoundingClientRect().height) : 0;
+  const pad    = 10;
+
+  const cssW = Math.floor(window.innerWidth  - pad * 2);
+  const cssH = Math.floor(window.innerHeight - topH - footH - pad * 2);
+
+  // 1) set CSS size (what you see) -> full screen area
+  Core.canvas.style.width  = cssW + 'px';
+  Core.canvas.style.height = cssH + 'px';
+
+  // 2) set backing store size in device pixels (prevents blur)
+  Core.canvas.width  = Math.round(cssW * Core.dpr);
+  Core.canvas.height = Math.round(cssH * Core.dpr);
+
+  // keep cells square: basePx drives Core.cell() = basePx / Core.GRID
+  // using min dimension preserves square grid cells while canvas fills screen
+  Core.basePx = Math.min(cssW, cssH);
+
+  // update zoom slider/label
+  const slider = Core.$('zoom-slider');
+  const label  = Core.$('zoom-label');
+  if (slider) {
+    slider.value = String(Math.round(Core.zoom * 100));
+    if (Core.getDynamicMaxZoom) {
+      slider.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
     }
+  }
+  if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
 
-    const slider = Core.$('zoom-slider');
-    const label  = Core.$('zoom-label');
+  // make drawing crisp
+  if (Core.ctx) {
+    Core.ctx.imageSmoothingEnabled = false;
+  }
 
-    if (slider) {
-      slider.value = String(Math.round(Core.zoom * 100));
-      if (Core.getDynamicMaxZoom) {
-        slider.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
-      }
-    }
-
-    if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
-
-    Core.markDirty('view');
-    if (window.Draw) window.Draw.render();
-  };
+  Core.markDirty('view');
+  if (window.Draw) window.Draw.render();
+};
 
   // ============================================================
   // COORDINATE TRANSFORMATIONS
