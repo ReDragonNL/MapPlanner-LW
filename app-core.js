@@ -800,7 +800,11 @@ function loadImage(src, callback) {
   }
   
   const img = new Image();
-  // NO crossOrigin line here
+  
+  // Enable CORS for images from same origin (GitHub Pages)
+  if(window.location.protocol !== 'file:') {
+    img.crossOrigin = 'anonymous';
+  }
   
   img.onload = () => {
     renderCache.imageCache[src] = img;
