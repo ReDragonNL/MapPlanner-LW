@@ -1495,251 +1495,80 @@ if (!window.UI) window.UI = {
 if($('export-png')) {
   $('export-png').onclick = () => {
     const Core = getCore();
+    const src = Core.canvas;
     const legendColors = window.UI.usedColors();
     const legendLabels = legendColors.map(c => ({
       color: c,
       label: Core.legendLabels[c] || c
     }));
 
-    const rowH = 28;  // Increased for better spacing
+    const rowH = 28;
     const pad = 20;
     const headerH = legendLabels.length ? 30 : 0;
     const legendHeight = legendLabels.length ? (headerH + legendLabels.length * rowH + pad) : 0;
 
-    // Get the canvas display size (CSS pixels)
-    const rect = Core.canvas.getBoundingClientRect();
-    const displayWidth = Math.round(rect.width);
-    const displayHeight = Math.round(rect.height);
+    // Use actual canvas dimensions
+    const canvasWidth = src.width;
+    const canvasHeight = src.height;
     
     const out = document.createElement('canvas');
-    out.width = displayWidth;
-    out.height = displayHeight + legendHeight;
+    out.width = canvasWidth;
+    out.height = canvasHeight + legendHeight;
     const ctx = out.getContext('2d');
 
-    // Fill background
-    ctx.fillStyle = '#2a2f45';
-    ctx.fillRect(0, 0, out.width, out.height);
-    
-    // Save Core context and temporarily replace it
-    const tempCtx = Core.ctx;
-    const tempCanvas = Core.canvas;
-    const tempDpr = Core.dpr;
-    
-    // Create temporary canvas for rendering
-    const renderCanvas = document.createElement('canvas');
-    renderCanvas.width = displayWidth;
-    renderCanvas.height = displayHeight;
-    const renderCtx = renderCanvas.getContext('2d');
-    
-    Core.ctx = renderCtx;
-    Core.dpr = 1; // Use 1:1 pixel ratio for export
-    
-    // Clear and setup transform
-    renderCtx.clearRect(0, 0, renderCanvas.width, renderCanvas.height);
-    renderCtx.setTransform(
-      Core.zoom, 0, 0, 
-      Core.zoom, 
-      Core.pan.x, 
-      Core.pan.y
-    );
-    
-    // Draw grid
-    const s = Core.cell();
-    const GRID = Core.GRID;
-    const gridWorldSize = GRID * s;
-    
-    renderCtx.fillStyle = '#2a2f45';
-    renderCtx.fillRect(0, 0, gridWorldSize, gridWorldSize);
-    
-    renderCtx.strokeStyle = '#404a78';
-    renderCtx.lineWidth = 1 / Core.zoom;
-    
-    const viewX1 = -Core.pan.x / Core.zoom;
-    const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (displayWidth / Core.zoom);
-    const viewY2 = viewY1 + (displayHeight / Core.zoom);
-    
-    const startRow = Math.max(0, Math.floor(viewY1 / s));
-    const endRow = Math.min(GRID, Math.ceil(viewY2 / s));
-    const startCol = Math.max(0, Math.floor(viewX1 / s));
-    const endCol = Math.min(GRID, Math.ceil(viewX2 / s));
-    
-    renderCtx.beginPath();
-    for(let i = startRow; i <= endRow; i++) {
-      const p = i * s;
-      renderCtx.moveTo(0, p);
-      renderCtx.lineTo(gridWorldSize, p);
-    }
-    for(let i = startCol; i <= endCol; i++) {
-      const p = i * s;
-      renderCtx.moveTo(p, 0);
-      renderCtx.lineTo(p, gridWorldSize);
-    }
-    renderCtx.stroke();
-    
-    // Draw items (without images to avoid CORS)
-    const TYPES = Core.TYPES;
-    const FILL = Core.FILL;
-    const BORDER = Core.BORDER;
-    const BORDER_SEL = Core.BORDER_SEL;
-    
-    for(const it of Core.items) {
-      const sz = Core.getSize(it);
-      const w = (it.sizeW || sz) * s;
-      const h = (it.sizeH || sz) * s;
-      const x = it.col * s;
-      const y = it.row * s;
-      
-      if(x + w < viewX1 || x > viewX2 || y + h < viewY1 || y > viewY2) continue;
-      
-      // Draw area glow for P types
-      if(it.type === TYPES.P && it.glow && it.area > 0) {
-        const sizeW = it.sizeW || sz;
-        const sizeH = it.sizeH || sz;
-        const r0 = it.row - it.area;
-        const c0 = it.col - it.area;
-        const r1 = it.row + sizeH + it.area;
-        const c1 = it.col + sizeW + it.area;
-        const areaColor = it.areaColor || it.color || FILL.P;
-        const alpha = (Number.isFinite(it.areaAlpha) ? it.areaAlpha : 22) / 100;
-        
-        renderCtx.save();
-        renderCtx.fillStyle = areaColor;
-        renderCtx.globalAlpha = alpha;
-        renderCtx.fillRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
-        renderCtx.restore();
-        
-        const aBorderAlpha = (Number.isFinite(it.areaBorderAlpha) ? it.areaBorderAlpha : 100) / 100;
-        renderCtx.strokeStyle = hexToRgba(it.areaBorderColor || areaColor, aBorderAlpha);
-        renderCtx.lineWidth = (Number.isFinite(it.areaBorderWidth) ? it.areaBorderWidth : 2) / Core.zoom;
-        renderCtx.strokeRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
-      }
-      
-      // Draw Y ambient light
-      if(it.type === TYPES.Y) {
-        const half = Math.floor(sz / 2);
-        const centerR = it.row + half;
-        const centerC = it.col + half;
-        const r0 = centerR - 11, c0 = centerC - 11;
-        const r1 = centerR + 12, c1 = centerC + 12;
-        const xx = c0 * s, yy = r0 * s;
-        const ww = (c1 - c0) * s, hh = (r1 - r0) * s;
-        
-        renderCtx.save();
-        renderCtx.globalAlpha = 0.18;
-        renderCtx.fillStyle = 'rgba(255,216,74,0.18)';
-        renderCtx.fillRect(xx, yy, ww, hh);
-        renderCtx.restore();
-        
-        renderCtx.strokeStyle = 'rgba(249,228,106,0.9)';
-        renderCtx.lineWidth = 2 / Core.zoom;
-        renderCtx.strokeRect(xx, yy, ww, hh);
-      }
-      
-      // Draw main fill
-      if(it.type === TYPES.P) {
-        const fillAlpha = (Number.isFinite(it.fillAlpha) ? it.fillAlpha : 100) / 100;
-        if(fillAlpha > 0) {
-          renderCtx.save();
-          renderCtx.globalAlpha = fillAlpha;
-          renderCtx.fillStyle = it.areaColor || it.color || FILL.P;
-          renderCtx.fillRect(x, y, w, h);
-          renderCtx.restore();
-        }
-        
-        const borderAlpha = (Number.isFinite(it.borderAlpha) ? it.borderAlpha : 100) / 100;
-        if(borderAlpha > 0.001) {
-          renderCtx.save();
-          renderCtx.globalAlpha = borderAlpha;
-          renderCtx.strokeStyle = it.borderColor || it.color || '#000000';
-          const bw = (Number.isFinite(it.borderWidth) ? it.borderWidth : 1.5);
-          renderCtx.lineWidth = bw / Core.zoom;
-          const offset = bw / (2 * Core.zoom);
-          renderCtx.strokeRect(x + offset, y + offset, w - bw / Core.zoom, h - bw / Core.zoom);
-          renderCtx.restore();
-        }
-        renderCtx.globalAlpha = 1;
-      } else {
-        renderCtx.fillStyle = it.color || FILL[it.type] || '#888';
-        renderCtx.fillRect(x, y, w, h);
-      }
-      
-      // Draw border
-      const isSelected = Core.selected.has(it.id);
-      renderCtx.lineWidth = (isSelected ? 2 : 1) / Core.zoom;
-      renderCtx.strokeStyle = isSelected ? BORDER_SEL : BORDER;
-      renderCtx.strokeRect(x, y, w, h);
-      
-      // Draw labels
-      if(Core.zoom > 0.3) {
-        renderCtx.fillStyle = '#fff';
-        renderCtx.textAlign = 'center';
-        renderCtx.textBaseline = 'middle';
-        
-        if(it.type === TYPES.P) {
-          renderCtx.font = `${s * 1.4}px sans-serif`;
-          renderCtx.fillText(it.label || 'P', x + w / 2, y + h / 2);
-          if(it.locked) {
-            renderCtx.font = `${s * 1.0}px sans-serif`;
-            renderCtx.fillText('🔒', x + w / 2, y + h - s * 0.7);
-          }
-        } else {
-          renderCtx.font = `${s * 1.5}px sans-serif`;
-          renderCtx.fillText(it.order || '', x + w / 2, y + h / 2);
-        }
-      }
-    }
-    
-    // Restore original context
-    Core.ctx = tempCtx;
-    Core.dpr = tempDpr;
-    
-    // Copy rendered canvas to output
-    ctx.drawImage(renderCanvas, 0, 0);
-    
-    // Draw legend with proper spacing
-    if(legendLabels.length) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
-      const y0 = displayHeight;
-      
-      // Legend background
-      ctx.fillStyle = '#171c39';
-      ctx.fillRect(0, y0, out.width, legendHeight);
-      
-      // Legend title
-      ctx.font = 'bold 18px sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = '#fff';
-      ctx.fillText('Legend', 15, y0 + 8);
-      
-      // Legend items
-      ctx.font = '14px sans-serif';
-      ctx.textBaseline = 'middle';
-      
-      legendLabels.forEach((row, i) => {
-        const y = y0 + headerH + (i * rowH) + (rowH / 2);
-        
-        // Color swatch
-        ctx.fillStyle = row.color;
-        ctx.fillRect(15, y - 10, 20, 20);
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(15, y - 10, 20, 20);
-        
-        // Label text
-        ctx.fillStyle = '#fff';
-        ctx.fillText(row.label, 45, y);
-      });
-    }
+    try {
+      // Draw the source canvas (includes images!)
+      ctx.drawImage(src, 0, 0);
 
-    // Export
-    const dataURL = out.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.download = `map-snapshot-${Date.now()}.png`;
-    a.href = dataURL;
-    a.click();
+      // Draw legend
+      if(legendLabels.length) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const y0 = canvasHeight;
+        
+        // Legend background
+        ctx.fillStyle = '#171c39';
+        ctx.fillRect(0, y0, out.width, legendHeight);
+        
+        // Legend title
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('Legend', 15, y0 + 8);
+        
+        // Legend items
+        ctx.font = '14px sans-serif';
+        ctx.textBaseline = 'middle';
+        
+        legendLabels.forEach((row, i) => {
+          const y = y0 + headerH + (i * rowH) + (rowH / 2);
+          
+          // Color swatch
+          ctx.fillStyle = row.color;
+          ctx.fillRect(15, y - 10, 20, 20);
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(15, y - 10, 20, 20);
+          
+          // Label text
+          ctx.fillStyle = '#fff';
+          ctx.fillText(row.label, 45, y);
+        });
+      }
+
+      // Export
+      const dataURL = out.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.download = `map-snapshot-${Date.now()}.png`;
+      a.href = dataURL;
+      a.click();
+      
+      window.UI.Toast.success('PNG exported with images!');
+      
+    } catch(err) {
+      console.error('Export error:', err);
+      window.UI.Toast.error('Export failed: ' + err.message);
+    }
     
-    window.UI.Toast.info('PNG exported (without background images)');
     autoClose();
   };
 }
