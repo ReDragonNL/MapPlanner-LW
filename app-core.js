@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v3
+// CORE ENGINE - MapPlanner v4
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
@@ -746,10 +746,14 @@ function hexToRgba(hex, alpha) {
     const gridWorldSize = GRID * s;
 
     // Calculate visible viewport in world coordinates
+    // Use actual canvas dimensions, not basePx
+    const vpW = Core.canvas.width / Core.dpr;
+    const vpH = Core.canvas.height / Core.dpr;
+    
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
-    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
+    const viewX2 = viewX1 + (vpW / Core.zoom);
+    const viewY2 = viewY1 + (vpH / Core.zoom);
 
     // Draw background for entire visible area
     ctx.fillStyle = '#2a2f45';
@@ -780,6 +784,7 @@ function hexToRgba(hex, alpha) {
     ctx.stroke();
 
     // Draw boundary rectangle for the working area (180×180)
+    // This is drawn in WORLD coordinates, so it stays fixed
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 / Core.zoom;
     ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
@@ -828,10 +833,14 @@ function loadImage(src, callback) {
     const {ctx, cell, SIZE, TYPES, FILL, BORDER, BORDER_SEL} = Core;
     const s = cell();
 
+    // Use actual canvas dimensions for viewport calculation
+    const vpW = Core.canvas.width / Core.dpr;
+    const vpH = Core.canvas.height / Core.dpr;
+    
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
-    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
+    const viewX2 = viewX1 + (vpW / Core.zoom);
+    const viewY2 = viewY1 + (vpH / Core.zoom);
 
     const layers = {
       areas: [],
