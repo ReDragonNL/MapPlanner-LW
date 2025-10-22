@@ -299,6 +299,14 @@ Core.resizeCanvas = function () {
 
   Core.markDirty('view');
   if (window.Draw) window.Draw.render();
+  
+  // Center work area on initial load
+  if (!Core._initView) {
+    Core._initView = true;
+    setTimeout(() => {
+      if (Core.fitView) Core.fitView();
+    }, 100);
+  }
 };
 
   // ============================================================
