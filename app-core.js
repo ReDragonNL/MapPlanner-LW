@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v3
+// CORE ENGINE - MapPlanner
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
@@ -532,28 +532,17 @@ Core.resizeCanvas = function () {
     const s = Core.cell();
     const gridWorldSize = Core.GRID * s;
     
-    // Get canvas dimensions (CSS pixels, not device pixels)
-    const vpW = Core.canvas.width / Core.dpr;
-    const vpH = Core.canvas.height / Core.dpr;
+    // Center of the work area
+    const centerX = gridWorldSize / 2;
+    const centerY = gridWorldSize / 2;
     
-    // Calculate zoom to fit the work area with padding
-    // Use 85% to leave margin around the grid
-    const zoomForWidth = (vpW * 0.85) / gridWorldSize;
-    const zoomForHeight = (vpH * 0.85) / gridWorldSize;
-    const targetZoom = Math.min(zoomForWidth, zoomForHeight);
+    // Calculate zoom to fit the work area with some padding
+    const availPx = Core.basePx;
+    const targetZoom = (availPx * 0.9) / gridWorldSize; // 90% to leave some margin
     
-    // Calculate the world-space size that will be visible
-    const visibleWorldW = vpW / targetZoom;
-    const visibleWorldH = vpH / targetZoom;
-    
-    // Center the grid in the visible world space
-    // The grid goes from (0,0) to (gridWorldSize, gridWorldSize)
-    const offsetX = (visibleWorldW - gridWorldSize) / 2;
-    const offsetY = (visibleWorldH - gridWorldSize) / 2;
-    
-    // Set pan to show the grid centered
-    Core.pan.x = offsetX * targetZoom;
-    Core.pan.y = offsetY * targetZoom;
+    // Center the work area on screen
+    Core.pan.x = (availPx / 2) - targetZoom * centerX;
+    Core.pan.y = (availPx / 2) - targetZoom * centerY;
     Core.zoom = targetZoom;
 
     Core.markDirty('view');
@@ -754,16 +743,10 @@ function hexToRgba(hex, alpha) {
     const gridWorldSize = GRID * s;
 
     // Calculate visible viewport in world coordinates
-    // Use actual canvas dimensions consistently
-    const canvasW = Core.canvas.width;
-    const canvasH = Core.canvas.height;
-    const vpW = canvasW / Core.dpr;
-    const vpH = canvasH / Core.dpr;
-    
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (vpW / Core.zoom);
-    const viewY2 = viewY1 + (vpH / Core.zoom);
+    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
+    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
 
     // Draw background for entire visible area
     ctx.fillStyle = '#2a2f45';
@@ -794,29 +777,11 @@ function hexToRgba(hex, alpha) {
     ctx.stroke();
 
     // Draw boundary rectangle for the working area (180×180)
-    // Draw in SCREEN SPACE so line width stays constant
-    
-    // Save current transform
-    ctx.save();
-    
-    // Switch to screen space
-    ctx.setTransform(Core.dpr, 0, 0, Core.dpr, 0, 0);
-    
-    // Calculate where work area (0,0) to (GRID,GRID) appears on screen
-    const screenX1 = 0 * Core.zoom + Core.pan.x;
-    const screenY1 = 0 * Core.zoom + Core.pan.y;
-    const screenX2 = gridWorldSize * Core.zoom + Core.pan.x;
-    const screenY2 = gridWorldSize * Core.zoom + Core.pan.y;
-    
-    // Draw rectangle with fixed line width
     ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 5]);
-    ctx.strokeRect(screenX1, screenY1, screenX2 - screenX1, screenY2 - screenY1);
+    ctx.lineWidth = 3 / Core.zoom;
+    ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
+    ctx.strokeRect(0, 0, gridWorldSize, gridWorldSize);
     ctx.setLineDash([]);
-    
-    // Restore world transform for next drawing operations
-    ctx.restore();
   }
 
 function loadImage(src, callback) {
@@ -860,14 +825,10 @@ function loadImage(src, callback) {
     const {ctx, cell, SIZE, TYPES, FILL, BORDER, BORDER_SEL} = Core;
     const s = cell();
 
-    // Use actual canvas dimensions for viewport calculation
-    const vpW = Core.canvas.width / Core.dpr;
-    const vpH = Core.canvas.height / Core.dpr;
-    
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (vpW / Core.zoom);
-    const viewY2 = viewY1 + (vpH / Core.zoom);
+    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
+    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
 
     const layers = {
       areas: [],
@@ -1589,12 +1550,6 @@ function loadImage(src, callback) {
 
     if (isDraw) {
       items.push(
-        { icon:'📏', label:'Measure Tool', action:()=>{ 
-          if(window.Features && window.Features.Measure) {
-            window.Features.Measure.toggle();
-          }
-        }},
-        'divider',
         { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
         'divider'
       );
@@ -1643,14 +1598,6 @@ function loadImage(src, callback) {
     }
 
     items.push(
-      { icon:'📏', label:'Measure Tool', action:()=>{ 
-        if(window.Features && window.Features.Measure) {
-          window.Features.Measure.toggle();
-        }
-      }},
-      
-      'divider',
-      
       { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
       { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
       { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
