@@ -794,36 +794,28 @@ function hexToRgba(hex, alpha) {
     ctx.stroke();
 
     // Draw boundary rectangle for the working area (180×180)
-    // This is drawn in SCREEN SPACE so it stays fixed on screen
+    // Draw in SCREEN SPACE so line width stays constant
+    
+    // Save current transform
     ctx.save();
     
-    // Reset transform to screen space
+    // Switch to screen space
     ctx.setTransform(Core.dpr, 0, 0, Core.dpr, 0, 0);
     
-    // Calculate where the work area (0,0) to (GRID,GRID) appears on screen
-    const worldX1 = 0;
-    const worldY1 = 0;
-    const worldX2 = gridWorldSize;
-    const worldY2 = gridWorldSize;
+    // Calculate where work area (0,0) to (GRID,GRID) appears on screen
+    const screenX1 = 0 * Core.zoom + Core.pan.x;
+    const screenY1 = 0 * Core.zoom + Core.pan.y;
+    const screenX2 = gridWorldSize * Core.zoom + Core.pan.x;
+    const screenY2 = gridWorldSize * Core.zoom + Core.pan.y;
     
-    // Convert world coordinates to screen coordinates
-    const screenX1 = worldX1 * Core.zoom + Core.pan.x;
-    const screenY1 = worldY1 * Core.zoom + Core.pan.y;
-    const screenX2 = worldX2 * Core.zoom + Core.pan.x;
-    const screenY2 = worldY2 * Core.zoom + Core.pan.y;
-    
-    // Draw rectangle in screen space (fixed size and position relative to work area)
+    // Draw rectangle with fixed line width
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3;
     ctx.setLineDash([10, 5]);
-    ctx.strokeRect(
-      screenX1, 
-      screenY1, 
-      screenX2 - screenX1, 
-      screenY2 - screenY1
-    );
+    ctx.strokeRect(screenX1, screenY1, screenX2 - screenX1, screenY2 - screenY1);
     ctx.setLineDash([]);
     
+    // Restore world transform for next drawing operations
     ctx.restore();
   }
 
