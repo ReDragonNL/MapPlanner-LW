@@ -794,13 +794,37 @@ function hexToRgba(hex, alpha) {
     ctx.stroke();
 
     // Draw boundary rectangle for the working area (180×180)
-    // This is drawn in WORLD coordinates (0,0) to (gridWorldSize, gridWorldSize)
-    // It moves with the grid, which is correct behavior
+    // This is drawn in SCREEN SPACE so it stays fixed on screen
+    ctx.save();
+    
+    // Reset transform to screen space
+    ctx.setTransform(Core.dpr, 0, 0, Core.dpr, 0, 0);
+    
+    // Calculate where the work area (0,0) to (GRID,GRID) appears on screen
+    const worldX1 = 0;
+    const worldY1 = 0;
+    const worldX2 = gridWorldSize;
+    const worldY2 = gridWorldSize;
+    
+    // Convert world coordinates to screen coordinates
+    const screenX1 = worldX1 * Core.zoom + Core.pan.x;
+    const screenY1 = worldY1 * Core.zoom + Core.pan.y;
+    const screenX2 = worldX2 * Core.zoom + Core.pan.x;
+    const screenY2 = worldY2 * Core.zoom + Core.pan.y;
+    
+    // Draw rectangle in screen space (fixed size and position relative to work area)
     ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 3 / Core.zoom;
-    ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
-    ctx.strokeRect(0, 0, gridWorldSize, gridWorldSize);
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 5]);
+    ctx.strokeRect(
+      screenX1, 
+      screenY1, 
+      screenX2 - screenX1, 
+      screenY2 - screenY1
+    );
     ctx.setLineDash([]);
+    
+    ctx.restore();
   }
 
 function loadImage(src, callback) {
