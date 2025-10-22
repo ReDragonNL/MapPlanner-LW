@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v4
+// CORE ENGINE - MapPlanner v3
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
@@ -532,17 +532,20 @@ Core.resizeCanvas = function () {
     const s = Core.cell();
     const gridWorldSize = Core.GRID * s;
     
-    // Center of the work area
+    // Center of the work area in world coordinates
     const centerX = gridWorldSize / 2;
     const centerY = gridWorldSize / 2;
     
-    // Calculate zoom to fit the work area with some padding
-    const availPx = Core.basePx;
-    const targetZoom = (availPx * 0.9) / gridWorldSize; // 90% to leave some margin
+    // Get canvas dimensions (CSS pixels, not device pixels)
+    const vpW = Core.canvas.width / Core.dpr;
+    const vpH = Core.canvas.height / Core.dpr;
+    
+    // Calculate zoom to fit the work area with some padding (use 85% to be more centered)
+    const targetZoom = Math.min(vpW, vpH) * 0.85 / gridWorldSize;
     
     // Center the work area on screen
-    Core.pan.x = (availPx / 2) - targetZoom * centerX;
-    Core.pan.y = (availPx / 2) - targetZoom * centerY;
+    Core.pan.x = (vpW / 2) - targetZoom * centerX;
+    Core.pan.y = (vpH / 2) - targetZoom * centerY;
     Core.zoom = targetZoom;
 
     Core.markDirty('view');
