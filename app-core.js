@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v4
+// CORE ENGINE - MapPlanner v3
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
@@ -532,20 +532,28 @@ Core.resizeCanvas = function () {
     const s = Core.cell();
     const gridWorldSize = Core.GRID * s;
     
-    // Center of the work area in world coordinates
-    const centerX = gridWorldSize / 2;
-    const centerY = gridWorldSize / 2;
-    
     // Get canvas dimensions (CSS pixels, not device pixels)
     const vpW = Core.canvas.width / Core.dpr;
     const vpH = Core.canvas.height / Core.dpr;
     
-    // Calculate zoom to fit the work area with some padding (use 85% to be more centered)
-    const targetZoom = Math.min(vpW, vpH) * 0.85 / gridWorldSize;
+    // Calculate zoom to fit the work area with padding
+    // Use 85% to leave margin around the grid
+    const zoomForWidth = (vpW * 0.85) / gridWorldSize;
+    const zoomForHeight = (vpH * 0.85) / gridWorldSize;
+    const targetZoom = Math.min(zoomForWidth, zoomForHeight);
     
-    // Center the work area on screen
-    Core.pan.x = (vpW / 2) - targetZoom * centerX;
-    Core.pan.y = (vpH / 2) - targetZoom * centerY;
+    // Calculate the world-space size that will be visible
+    const visibleWorldW = vpW / targetZoom;
+    const visibleWorldH = vpH / targetZoom;
+    
+    // Center the grid in the visible world space
+    // The grid goes from (0,0) to (gridWorldSize, gridWorldSize)
+    const offsetX = (visibleWorldW - gridWorldSize) / 2;
+    const offsetY = (visibleWorldH - gridWorldSize) / 2;
+    
+    // Set pan to show the grid centered
+    Core.pan.x = offsetX * targetZoom;
+    Core.pan.y = offsetY * targetZoom;
     Core.zoom = targetZoom;
 
     Core.markDirty('view');
@@ -1562,6 +1570,12 @@ function loadImage(src, callback) {
 
     if (isDraw) {
       items.push(
+        { icon:'📏', label:'Measure Tool', action:()=>{ 
+          if(window.Features && window.Features.Measure) {
+            window.Features.Measure.toggle();
+          }
+        }},
+        'divider',
         { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
         'divider'
       );
@@ -1610,6 +1624,14 @@ function loadImage(src, callback) {
     }
 
     items.push(
+      { icon:'📏', label:'Measure Tool', action:()=>{ 
+        if(window.Features && window.Features.Measure) {
+          window.Features.Measure.toggle();
+        }
+      }},
+      
+      'divider',
+      
       { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
       { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
       { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
