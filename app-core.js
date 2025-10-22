@@ -775,17 +775,17 @@ function hexToRgba(hex, alpha) {
     const endCol = Math.min(GRID, Math.ceil(viewX2 / s));
 
     ctx.beginPath();
-    // Horizontal lines
+    // Horizontal lines - extend to viewport edges
     for(let i = startRow; i <= endRow; i++) {
       const p = i * s;
-      ctx.moveTo(0, p);
-      ctx.lineTo(gridWorldSize, p);
+      ctx.moveTo(Math.max(0, viewX1), p);
+      ctx.lineTo(Math.min(gridWorldSize, viewX2), p);
     }
-    // Vertical lines
+    // Vertical lines - extend to viewport edges
     for(let i = startCol; i <= endCol; i++) {
       const p = i * s;
-      ctx.moveTo(p, 0);
-      ctx.lineTo(p, gridWorldSize);
+      ctx.moveTo(p, Math.max(0, viewY1));
+      ctx.lineTo(p, Math.min(gridWorldSize, viewY2));
     }
     ctx.stroke();
   }
@@ -1679,4 +1679,3 @@ function loadImage(src, callback) {
   };
   
 })();
-	
