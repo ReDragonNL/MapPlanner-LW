@@ -754,9 +754,11 @@ function hexToRgba(hex, alpha) {
     const gridWorldSize = GRID * s;
 
     // Calculate visible viewport in world coordinates
-    // Use actual canvas dimensions, not basePx
-    const vpW = Core.canvas.width / Core.dpr;
-    const vpH = Core.canvas.height / Core.dpr;
+    // Use actual canvas dimensions consistently
+    const canvasW = Core.canvas.width;
+    const canvasH = Core.canvas.height;
+    const vpW = canvasW / Core.dpr;
+    const vpH = canvasH / Core.dpr;
     
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
@@ -792,7 +794,8 @@ function hexToRgba(hex, alpha) {
     ctx.stroke();
 
     // Draw boundary rectangle for the working area (180×180)
-    // This is drawn in WORLD coordinates, so it stays fixed
+    // This is drawn in WORLD coordinates (0,0) to (gridWorldSize, gridWorldSize)
+    // It moves with the grid, which is correct behavior
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 / Core.zoom;
     ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
