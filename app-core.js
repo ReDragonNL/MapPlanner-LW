@@ -520,41 +520,19 @@ Core.resizeCanvas = function () {
   };
 
   Core.fitView = function() {
-    if(!Core.items.length) {
-      Core.pan.x = 0;
-      Core.pan.y = 0;
-      Core.zoom = 1;
-      Core.markDirty('view');
-      if(window.Draw) window.Draw.render();
-      return;
-    }
-	
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
-    
-    for(const it of Core.items) {
-      const s = Core.getSize(it);
-      minR = Math.min(minR, it.row);
-      minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
-    }
-    
-    const marginR = Math.ceil((maxR - minR) * 0.05) + 1;
-    const marginC = Math.ceil((maxC - minC) * 0.05) + 1;
-    minR = Math.max(0, minR - marginR);
-    minC = Math.max(0, minC - marginC);
-    maxR = Math.min(Core.GRID, maxR + marginR);
-    maxC = Math.min(Core.GRID, maxC + marginC);
-
+    // Always center the work area (0 to GRID), regardless of items
     const s = Core.cell();
-    const boxW = (maxC - minC) * s;
-    const boxH = (maxR - minR) * s;
-    const availPx = Core.basePx;
-
-    const targetZoom = Math.min(availPx / boxW, availPx / boxH);
-    const centerX = ((minC + maxC) / 2) * s;
-    const centerY = ((minR + maxR) / 2) * s;
+    const gridWorldSize = Core.GRID * s;
     
+    // Center of the work area
+    const centerX = gridWorldSize / 2;
+    const centerY = gridWorldSize / 2;
+    
+    // Calculate zoom to fit the work area with some padding
+    const availPx = Core.basePx;
+    const targetZoom = (availPx * 0.9) / gridWorldSize; // 90% to leave some margin
+    
+    // Center the work area on screen
     Core.pan.x = (availPx / 2) - targetZoom * centerX;
     Core.pan.y = (availPx / 2) - targetZoom * centerY;
     Core.zoom = targetZoom;
@@ -753,41 +731,49 @@ function hexToRgba(hex, alpha) {
       renderCache.needsFullRedraw = true;
     }
 
-    // Calculate grid world size
+    // Calculate grid world size (working area)
     const gridWorldSize = GRID * s;
 
-    // Draw background
-    ctx.fillStyle = '#2a2f45';
-    ctx.fillRect(0, 0, gridWorldSize, gridWorldSize);
-
-    // Draw grid lines
-    ctx.strokeStyle = '#404a78';
-    ctx.lineWidth = 1 / Core.zoom;
-
+    // Calculate visible viewport in world coordinates
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
     const viewX2 = viewX1 + (Core.basePx / Core.zoom);
     const viewY2 = viewY1 + (Core.basePx / Core.zoom);
 
-    const startRow = Math.max(0, Math.floor(viewY1 / s));
-    const endRow = Math.min(GRID, Math.ceil(viewY2 / s));
-    const startCol = Math.max(0, Math.floor(viewX1 / s));
-    const endCol = Math.min(GRID, Math.ceil(viewX2 / s));
+    // Draw background for entire visible area
+    ctx.fillStyle = '#2a2f45';
+    ctx.fillRect(viewX1, viewY1, viewX2 - viewX1, viewY2 - viewY1);
+
+    // Draw grid lines across ENTIRE visible viewport (infinite grid)
+    ctx.strokeStyle = '#404a78';
+    ctx.lineWidth = 1 / Core.zoom;
+
+    const startRow = Math.floor(viewY1 / s);
+    const endRow = Math.ceil(viewY2 / s);
+    const startCol = Math.floor(viewX1 / s);
+    const endCol = Math.ceil(viewX2 / s);
 
     ctx.beginPath();
-    // Horizontal lines - extend to viewport edges
+    // Horizontal lines - across entire viewport
     for(let i = startRow; i <= endRow; i++) {
       const p = i * s;
-      ctx.moveTo(Math.max(0, viewX1), p);
-      ctx.lineTo(Math.min(gridWorldSize, viewX2), p);
+      ctx.moveTo(viewX1, p);
+      ctx.lineTo(viewX2, p);
     }
-    // Vertical lines - extend to viewport edges
+    // Vertical lines - across entire viewport
     for(let i = startCol; i <= endCol; i++) {
       const p = i * s;
-      ctx.moveTo(p, Math.max(0, viewY1));
-      ctx.lineTo(p, Math.min(gridWorldSize, viewY2));
+      ctx.moveTo(p, viewY1);
+      ctx.lineTo(p, viewY2);
     }
     ctx.stroke();
+
+    // Draw boundary rectangle for the working area (180×180)
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 3 / Core.zoom;
+    ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
+    ctx.strokeRect(0, 0, gridWorldSize, gridWorldSize);
+    ctx.setLineDash([]);
   }
 
 function loadImage(src, callback) {
