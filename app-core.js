@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v3.1
+// CORE ENGINE - MapPlanner v3
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
