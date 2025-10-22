@@ -33,6 +33,11 @@
       const Core = window.Core;
       
       if(this.enabled) {
+        // Hide any open context menu
+        if(window.UI && window.UI.hideContextMenu) {
+          window.UI.hideContextMenu();
+        }
+        
         // Store current mode and switch to View mode
         this.previousMode = Core.mode || 'draw';
         if(window.setMode) {
@@ -66,8 +71,11 @@
         const world = Core.screenToWorld(e.clientX, e.clientY);
         this.currentWorld = world;
         
-        // Trigger render to show the line
-        window.Draw.render();
+        // Mark dirty and trigger immediate render to show the line
+        Core.markDirty('view');
+        if(window.Draw && window.Draw.renderImmediate) {
+          window.Draw.renderImmediate();
+        }
       };
       
       // Click handler - sets points (PATCHED)
