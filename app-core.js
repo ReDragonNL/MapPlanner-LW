@@ -277,6 +277,10 @@ Core.resizeCanvas = function () {
   Core.canvas.width  = Math.round(cssW * Core.dpr);
   Core.canvas.height = Math.round(cssH * Core.dpr);
 
+  // Store actual canvas dimensions for proper centering
+  Core.canvasWidth = cssW;
+  Core.canvasHeight = cssH;
+
   // keep cells square: basePx drives Core.cell() = basePx / Core.GRID
   // using min dimension preserves square grid cells while canvas fills screen
   Core.basePx = Math.min(cssW, cssH);
@@ -540,9 +544,12 @@ Core.resizeCanvas = function () {
     const availPx = Core.basePx;
     const targetZoom = (availPx * 0.9) / gridWorldSize; // 90% to leave some margin
     
-    // Center the work area on screen
-    Core.pan.x = (availPx / 2) - targetZoom * centerX;
-    Core.pan.y = (availPx / 2) - targetZoom * centerY;
+    // Center the work area on screen using actual canvas dimensions
+    const canvasW = Core.canvasWidth || Core.basePx;
+    const canvasH = Core.canvasHeight || Core.basePx;
+    
+    Core.pan.x = (canvasW / 2) - targetZoom * centerX;
+    Core.pan.y = (canvasH / 2) - targetZoom * centerY;
     Core.zoom = targetZoom;
 
     Core.markDirty('view');
