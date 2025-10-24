@@ -1,6 +1,6 @@
 // ============================================================
 // CORE ENGINE - MapPlanner
-// FIXED: Grid boundary, measure tool compatibility, and all bugs
+// COMPLETELY FIXED: All reported issues resolved
 // ============================================================
 
 (function(){
@@ -39,6 +39,7 @@
   Core.legendLabels = {};
   Core.lastPaintRC = null;
   Core.mode = 'draw';
+  Core._currentColor = null;
 
   // ============================================================
   // DIRTY FLAGS FOR RENDER OPTIMIZATION
@@ -102,11 +103,12 @@
     rebuild() {
       this.grid.clear();
       for(const it of Core.items) {
-        const size = Core.getSize(it);
+        const sizeW = it.sizeW || Core.getSize(it);
+        const sizeH = it.sizeH || Core.getSize(it);
         const minR = Math.floor(it.row / this.cellSize);
-        const maxR = Math.floor((it.row + size - 1) / this.cellSize);
+        const maxR = Math.floor((it.row + sizeH - 1) / this.cellSize);
         const minC = Math.floor(it.col / this.cellSize);
-        const maxC = Math.floor((it.col + size - 1) / this.cellSize);
+        const maxC = Math.floor((it.col + sizeW - 1) / this.cellSize);
         
         for(let r = minR; r <= maxR; r++) {
           for(let c = minC; c <= maxC; c++) {
@@ -247,21 +249,38 @@
   };
 
   // ============================================================
-  // ITEM PLACEMENT
+  // ITEM PLACEMENT - FIXED: Auto-increment order numbers
   // ============================================================
+  Core._nextOrder = 1;
+
   Core.placeX = function(rc) {
-    Core.place('X', rc.r, rc.c);
+    const item = Core.place('X', rc.r, rc.c, {
+      order: Core._nextOrder++
+    });
+    return item;
   };
 
   Core.placeY = function(rc) {
-    Core.place('Y', rc.r, rc.c);
+    const item = Core.place('Y', rc.r, rc.c, {
+      order: Core._nextOrder++
+    });
+    return item;
   };
 
   Core.place = function(type, row, col, opts = {}) {
-    const sz = opts.size || Core.SIZE[type] || 3;
+    const sizeW = opts.sizeW || opts.size || Core.SIZE[type] || 3;
+    const sizeH = opts.sizeH || opts.size || Core.SIZE[type] || 3;
     
-    if(Core.collides(row, col, sz, sz)) {
-      const alt = Core.findFreeSpot(row, col, sz, sz);
+    // Check if placement is within grid bounds
+    if(row < 0 || col < 0 || row + sizeH > Core.GRID || col + sizeW > Core.GRID) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('Cannot place outside grid bounds');
+      }
+      return null;
+    }
+    
+    if(Core.collides(row, col, sizeW, sizeH)) {
+      const alt = Core.findFreeSpot(row, col, sizeW, sizeH);
       if(alt) {
         row = alt.r;
         col = alt.c;
@@ -278,8 +297,10 @@
       type: type,
       row: row,
       col: col,
-      size: sz,
-      color: opts.color || Core.FILL[type] || '#888',
+      sizeW: sizeW,
+      sizeH: sizeH,
+      size: Math.max(sizeW, sizeH),
+      color: opts.color || Core._currentColor || Core.FILL[type] || '#888',
       order: opts.order || '',
       label: opts.label || '',
       locked: false,
@@ -291,6 +312,15 @@
     if(window.Draw) window.Draw.render();
     
     return item;
+  };
+
+  // FIXED: Add point with proper size
+  Core.addPoint = function(row, col, opts = {}) {
+    return Core.place('P', row, col, {
+      sizeW: 6,
+      sizeH: 6,
+      ...opts
+    });
   };
 
   // ============================================================
@@ -467,6 +497,12 @@
       Core.pan = {x: 0, y: 0};
       Core.markDirty('view');
       if(window.Draw) window.Draw.render();
+      
+      // Update zoom controls
+      const zoomSlider = document.getElementById('zoom-slider');
+      const zoomLabel = document.getElementById('zoom-label');
+      if(zoomSlider) zoomSlider.value = '100';
+      if(zoomLabel) zoomLabel.textContent = '100%';
       return;
     }
     
@@ -511,19 +547,23 @@
   };
 
   // ============================================================
-  // CANVAS RESIZE
+  // CANVAS RESIZE - FIXED: Full screen canvas
   // ============================================================
   Core.resizeCanvas = function() {
     if(!Core.canvas) return;
     
     Core.dpr = window.devicePixelRatio || 1;
-    const w = Core.basePx;
-    const h = Core.basePx;
     
-    Core.canvas.width = w * Core.dpr;
-    Core.canvas.height = h * Core.dpr;
-    Core.canvas.style.width = w + 'px';
-    Core.canvas.style.height = h + 'px';
+    // FIXED: Use window dimensions for full screen
+    const w = Math.min(window.innerWidth - 40, 1200); // Max width with margins
+    const h = Math.min(window.innerHeight - 200, 1200); // Account for toolbar
+    
+    Core.basePx = Math.min(w, h); // Keep it square
+    
+    Core.canvas.width = Core.basePx * Core.dpr;
+    Core.canvas.height = Core.basePx * Core.dpr;
+    Core.canvas.style.width = Core.basePx + 'px';
+    Core.canvas.style.height = Core.basePx + 'px';
     
     if(Core.ctx) {
       Core.ctx.scale(Core.dpr, Core.dpr);
@@ -602,6 +642,7 @@
     Core.pushUndo(true);
     Core.items = [];
     Core.selected.clear();
+    Core._nextOrder = 1; // Reset order counter
     Core.markDirty('items');
     Core.markDirty('selection');
     if(window.Draw) window.Draw.render();
@@ -726,7 +767,6 @@
 
 // ============================================================
 // DRAW ENGINE - Rendering System
-// FIXED: Grid boundary stays fixed in world coordinates
 // ============================================================
 function hexToRgba(hex, alpha) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -758,9 +798,6 @@ function hexToRgba(hex, alpha) {
     return window.Core;
   }
 
-  // ============================================================
-  // FIXED: Grid with boundary rectangle in world coordinates
-  // ============================================================
   function drawGrid() {
     const Core = getCore();
     const {ctx, cell, GRID} = Core;
@@ -774,20 +811,16 @@ function hexToRgba(hex, alpha) {
       renderCache.needsFullRedraw = true;
     }
 
-    // Calculate grid world size (working area)
     const gridWorldSize = GRID * s;
 
-    // Calculate visible viewport in world coordinates
     const viewX1 = -Core.pan.x / Core.zoom;
     const viewY1 = -Core.pan.y / Core.zoom;
     const viewX2 = viewX1 + (Core.basePx / Core.zoom);
     const viewY2 = viewY1 + (Core.basePx / Core.zoom);
 
-    // Draw background for entire visible area
     ctx.fillStyle = '#2a2f45';
     ctx.fillRect(viewX1, viewY1, viewX2 - viewX1, viewY2 - viewY1);
 
-    // Draw grid lines across ENTIRE visible viewport (infinite grid)
     ctx.strokeStyle = '#404a78';
     ctx.lineWidth = 1 / Core.zoom;
 
@@ -797,13 +830,11 @@ function hexToRgba(hex, alpha) {
     const endCol = Math.ceil(viewX2 / s);
 
     ctx.beginPath();
-    // Horizontal lines - across entire viewport
     for(let i = startRow; i <= endRow; i++) {
       const p = i * s;
       ctx.moveTo(viewX1, p);
       ctx.lineTo(viewX2, p);
     }
-    // Vertical lines - across entire viewport
     for(let i = startCol; i <= endCol; i++) {
       const p = i * s;
       ctx.moveTo(p, viewY1);
@@ -811,8 +842,7 @@ function hexToRgba(hex, alpha) {
     }
     ctx.stroke();
 
-    // FIXED: Draw boundary rectangle at FIXED world coordinates (0,0) to (gridWorldSize, gridWorldSize)
-    // This rectangle will not move with pan/zoom - it stays anchored to the grid origin
+    // FIXED: Grid boundary at origin
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 / Core.zoom;
     ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
@@ -832,7 +862,6 @@ function hexToRgba(hex, alpha) {
     
     const img = new Image();
     
-    // Enable CORS for images from same origin
     if(window.location.protocol !== 'file:') {
       img.crossOrigin = 'anonymous';
     }
@@ -873,11 +902,12 @@ function hexToRgba(hex, alpha) {
     };
 
     for(const it of Core.items) {
-      const sz = Core.getSize(it);
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
       const x = it.col * s;
       const y = it.row * s;
-      const w = (it.sizeW || sz) * s;
-      const h = (it.sizeH || sz) * s;
+      const w = sizeW * s;
+      const h = sizeH * s;
 
       if(x + w < viewX1 || x > viewX2 || y + h < viewY1 || y > viewY2) {
         continue;
@@ -893,7 +923,6 @@ function hexToRgba(hex, alpha) {
       }
     }
 
-    // Draw area effects
     for(const it of layers.areas) {
       const sizeW = it.sizeW || Core.getSize(it);
       const sizeH = it.sizeH || Core.getSize(it);
@@ -918,7 +947,6 @@ function hexToRgba(hex, alpha) {
       ctx.strokeRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
     }
 
-    // Draw ambient effects (Y type)
     for(const it of layers.ambients) {
       const sz = Core.getSize(it);
       const half = Math.floor(sz / 2);
@@ -942,11 +970,11 @@ function hexToRgba(hex, alpha) {
       ctx.strokeRect(xx, yy, ww, hh);
     }
 
-    // Draw blocks
     for(const it of layers.blocks) {
-      const sz = Core.getSize(it);
-      const w = (it.sizeW || sz) * s;
-      const h = (it.sizeH || sz) * s;
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
+      const w = sizeW * s;
+      const h = sizeH * s;
       const x = it.col * s;
       const y = it.row * s;
 
@@ -987,7 +1015,6 @@ function hexToRgba(hex, alpha) {
         ctx.fillRect(x, y, w, h);
       }
 
-      // Draw image if present
       if (it.image) {
         const img = loadImage(it.image);
         if (img) {
@@ -1008,13 +1035,12 @@ function hexToRgba(hex, alpha) {
         }
       }
 
-      // Draw border
       const isSelected = Core.selected.has(it.id);
       ctx.lineWidth = (isSelected ? 2 : 1) / Core.zoom;
       ctx.strokeStyle = isSelected ? BORDER_SEL : BORDER;
       ctx.strokeRect(x, y, w, h);
 
-      // Draw labels
+      // FIXED: Always show order numbers for X and Y
       if(Core.zoom > 0.3) {
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
@@ -1029,8 +1055,12 @@ function hexToRgba(hex, alpha) {
             ctx.fillText('🔒', x + w / 2, y + h - s * 0.7);
           }
         } else {
+          // FIXED: Show order number for X and Y
           ctx.font = `${s * 1.5}px sans-serif`;
-          ctx.fillText(it.order || '', x + w / 2, y + h / 2);
+          const orderText = it.order || '';
+          if(orderText) {
+            ctx.fillText(orderText, x + w / 2, y + h / 2);
+          }
         }
       }
     }
@@ -1058,9 +1088,6 @@ function hexToRgba(hex, alpha) {
     ctx.setLineDash([]);
   }
 
-  // ============================================================
-  // MAIN RENDER FUNCTION
-  // ============================================================
   Draw.render = function() {
     if(renderRequested) return;
     renderRequested = true;
@@ -1086,16 +1113,13 @@ function hexToRgba(hex, alpha) {
     ctx.save();
     ctx.clearRect(0, 0, Core.basePx, Core.basePx);
     
-    // Apply transformations
     ctx.translate(Core.pan.x, Core.pan.y);
     ctx.scale(Core.zoom, Core.zoom);
     
-    // Draw all layers
     drawGrid();
     drawItems();
     drawLasso();
     
-    // FIXED: Draw measure tool line (if active)
     if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
       window.Features.Measure.draw(ctx);
     }
@@ -1104,7 +1128,6 @@ function hexToRgba(hex, alpha) {
     
     Core.clearDirtyFlags();
     
-    // Update FPS counter
     if(window.Features && window.Features.FPS) {
       window.Features.FPS.tick();
     }
@@ -1115,7 +1138,7 @@ function hexToRgba(hex, alpha) {
 
 // ============================================================
 // GESTURE & INPUT SYSTEM
-// Handles all mouse, touch, and keyboard input
+// FIXED: Drawing one-by-one, pan mode working
 // ============================================================
 (function(){
   const Gestures = {};
@@ -1192,7 +1215,7 @@ function hexToRgba(hex, alpha) {
   function handlePointerDown(e) {
     const Core = getCore();
     
-    // Right-click - context menu (select mode only)
+    // Right-click - context menu
     if(e.button === 2) {
       e.preventDefault();
       
@@ -1225,15 +1248,16 @@ function hexToRgba(hex, alpha) {
       const world = worldAtScreen(e.clientX, e.clientY);
       Core._mouseW = world;
 
-      // FIXED: Check if measure tool is active
+      // Check if measure tool is active
       if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
-        // Let measure tool handle the click
         return;
       }
 
+      // FIXED: View mode for panning
       if(Core.mode === 'view') {
         Gestures.lastMidCSS = {x: e.clientX, y: e.clientY};
         Gestures.state = GestureState.PANNING;
+        document.getElementById('board').style.cursor = 'grabbing';
       }
       else if(Core.mode === 'draw') {
         const hit = hitItemAtRC(rc);
@@ -1263,6 +1287,7 @@ function hexToRgba(hex, alpha) {
           return;
         }
 
+        // FIXED: Place single item on click
         Core.pushUndo();
         Core.placeX(rc);
         Core.lastPaintRC = rc;
@@ -1333,6 +1358,7 @@ function hexToRgba(hex, alpha) {
     const Core = getCore();
     const rc = Core.evtRC(e);
 
+    // FIXED: Panning in view mode
     if(Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
       Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
       Core.pan.y += (e.clientY - Gestures.lastMidCSS.y);
@@ -1497,19 +1523,27 @@ function hexToRgba(hex, alpha) {
       }
     }
 
+    // FIXED: Drawing one-by-one when dragging
     if(Gestures.state === GestureState.DRAWING && Core.mode === 'draw') {
       const Core = getCore();
       const last = Core.lastPaintRC;
-      if(!last || (last.r === rc.r && last.c === rc.c)) return;
       
-      Core.placeX(rc);
-      Core.lastPaintRC = rc;
+      // Only place if we moved to a different cell
+      if(!last || (last.r !== rc.r || last.c !== rc.c)) {
+        Core.placeX(rc);
+        Core.lastPaintRC = rc;
+      }
     }
   }
 
   function handlePointerUp(e) {
     const Core = getCore();
     Gestures.pointers.delete(e.pointerId);
+
+    // FIXED: Reset cursor after panning
+    if(Gestures.state === GestureState.PANNING) {
+      document.getElementById('board').style.cursor = Core.mode === 'view' ? 'grab' : 'default';
+    }
 
     if(Gestures.state === GestureState.LASSO && Core.lassoStart && Core._mouseW) {
       const x1 = Math.min(Core.lassoStart.x, Core._mouseW.x);
@@ -1578,56 +1612,48 @@ function hexToRgba(hex, alpha) {
   function handleKeyDown(e) {
     const Core = getCore();
     
-    // Ctrl/Cmd + Z = Undo
     if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       Core.undo();
       return;
     }
     
-    // Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z = Redo
     if((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
       e.preventDefault();
       Core.redo();
       return;
     }
     
-    // Delete/Backspace = Delete selected
     if((e.key === 'Delete' || e.key === 'Backspace') && Core.mode === 'select') {
       e.preventDefault();
       Core.deleteSelected();
       return;
     }
     
-    // Ctrl/Cmd + A = Select all
     if((e.ctrlKey || e.metaKey) && e.key === 'a') {
       e.preventDefault();
       Core.selectAll();
       return;
     }
     
-    // Ctrl/Cmd + C = Copy
     if((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
       Core.copySelected();
       return;
     }
     
-    // Ctrl/Cmd + V = Paste
     if((e.ctrlKey || e.metaKey) && e.key === 'v') {
       e.preventDefault();
       Core.pasteClipboard();
       return;
     }
     
-    // F = Fit view
     if(e.key === 'f' || e.key === 'F') {
       e.preventDefault();
       Core.fitView();
       return;
     }
     
-    // Escape = Clear selection / Exit measure tool
     if(e.key === 'Escape') {
       if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
         const measureBtn = document.getElementById('measure-tool');
@@ -1644,9 +1670,6 @@ function hexToRgba(hex, alpha) {
     }
   }
 
-  // ============================================================
-  // INITIALIZE EVENT LISTENERS
-  // ============================================================
   function initGestures() {
     const canvas = getCanvas();
     if(!canvas) {
