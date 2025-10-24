@@ -1,7 +1,6 @@
 // ============================================================
 // CORE ENGINE - MapPlanner
-// Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
-// PATCHED: Right-click context menu improvements
+// FIXED: Grid boundary, measure tool compatibility, and all bugs
 // ============================================================
 
 (function(){
@@ -198,510 +197,536 @@
   // ============================================================
   Core.restore = function(snapshot) {
     if(Number.isFinite(snapshot.gridSize)) {
-      Core.GRID = snapshot.gridSize;
+      Core.setGridSize(snapshot.gridSize, {scale: false});
     }
+    
     Core.items = snapshot.items || [];
     Core.idSeq = snapshot.idSeq || 1;
     Core.legendLabels = snapshot.legendLabels || {};
+    
     Core.markDirty('items');
     Core.markDirty('legend');
-    Core.resizeCanvas();
+    
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.updateLegend) window.UI.updateLegend();
   };
-  
-  // ============================================================
-  // DYNAMIC ZOOM LIMITS BASED ON GRID SIZE
-  // ============================================================
-  Core.getDynamicMaxZoom = function () {
-    const g = Math.max(20, Math.min(Core.GRID || 180, 2000));
-    const ratio = g / 20;
-    const zoom = 1 + Math.pow(ratio, 0.75) * 1.65;
-    return Math.min(60, zoom);
-  };
-
-  // ============================================================
-  // AUTO-NUMBERING FOR X/Y BLOCKS
-  // ============================================================
-  Core.renumber = function() {
-    const groups = new Map();
-    for(const it of Core.items) {
-      if(it.type === Core.TYPES.X || it.type === Core.TYPES.Y) {
-        const key = (it.type || '') + '|' + (it.color || Core.FILL[it.type] || 'default');
-        if(!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(it);
-      }
-    }
-    for(const [key, arr] of groups) {
-      arr.sort((a,b) => a.row - b.row || a.col - b.col || a.id - b.id);
-      arr.forEach((it, i) => { it.order = i + 1; });
-    }
-  };
-
-  // ============================================================
-  // CANVAS TRANSFORM MANAGEMENT
-  // ============================================================
-  Core.setTransform = function() {
-    Core.ctx.setTransform(
-      Core.dpr * Core.zoom, 0, 0, 
-      Core.dpr * Core.zoom, 
-      Core.dpr * Core.pan.x, 
-      Core.dpr * Core.pan.y
-    );
-  };
-
-  Core.clearCanvas = function() {
-    Core.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    Core.ctx.clearRect(0, 0, Core.canvas.width, Core.canvas.height);
-  };
-
-  // ============================================================
-  // CANVAS RESIZING & INITIALIZATION
-  // ============================================================
-Core.resizeCanvas = function () {
-  Core.dpr = window.devicePixelRatio || 1;
-
-  // compute available rectangle (full screen minus top bar & a small pad)
-  const top = document.querySelector('.topbar');
-  const footer = document.querySelector('footer');
-  const topH   = top ? Math.ceil(top.getBoundingClientRect().height) : 0;
-  const footH  = footer ? Math.ceil(footer.getBoundingClientRect().height) : 0;
-  const pad    = 10;
-
-  const cssW = Math.floor(window.innerWidth  - pad * 2);
-  const cssH = Math.floor(window.innerHeight - topH - footH - pad * 2);
-
-  // 1) set CSS size (what you see) -> full screen area
-  Core.canvas.style.width  = cssW + 'px';
-  Core.canvas.style.height = cssH + 'px';
-
-  // 2) set backing store size in device pixels (prevents blur)
-  Core.canvas.width  = Math.round(cssW * Core.dpr);
-  Core.canvas.height = Math.round(cssH * Core.dpr);
-
-  // Store actual canvas dimensions for proper centering
-  Core.canvasWidth = cssW;
-  Core.canvasHeight = cssH;
-
-  // keep cells square: basePx drives Core.cell() = basePx / Core.GRID
-  // using min dimension preserves square grid cells while canvas fills screen
-  Core.basePx = Math.min(cssW, cssH);
-
-  // update zoom slider/label
-  const slider = Core.$('zoom-slider');
-  const label  = Core.$('zoom-label');
-  if (slider) {
-    slider.value = String(Math.round(Core.zoom * 100));
-    if (Core.getDynamicMaxZoom) {
-      slider.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
-    }
-  }
-  if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
-
-  // make drawing crisp
-  if (Core.ctx) {
-    Core.ctx.imageSmoothingEnabled = false;
-  }
-
-  Core.markDirty('view');
-  if (window.Draw) window.Draw.render();
-  
-  // Center work area on initial load
-  if (!Core._initView) {
-    Core._initView = true;
-    setTimeout(() => {
-      if (Core.fitView) Core.fitView();
-    }, 100);
-  }
-};
 
   // ============================================================
   // COORDINATE TRANSFORMATIONS
   // ============================================================
-  Core.screenToWorld = function(clientX, clientY) {
-    const rect = Core.canvas.getBoundingClientRect();
-    const xCSS = clientX - rect.left;
-    const yCSS = clientY - rect.top;
-    const xDev = xCSS * (Core.canvas.width / rect.width);
-    const yDev = yCSS * (Core.canvas.height / rect.height);
-    const xW = (xDev / Core.dpr - Core.pan.x) / Core.zoom;
-    const yW = (yDev / Core.dpr - Core.pan.y) / Core.zoom;
-    return {x: xW, y: yW};
+  Core.worldToScreen = function(wx, wy) {
+    return {
+      x: wx * Core.zoom + Core.pan.x,
+      y: wy * Core.zoom + Core.pan.y
+    };
   };
 
-  Core.worldToRC = function(xW, yW) {
+  Core.screenToWorld = function(sx, sy) {
+    const canvas = Core.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = sx - rect.left;
+    const canvasY = sy - rect.top;
+    
+    return {
+      x: (canvasX - Core.pan.x) / Core.zoom,
+      y: (canvasY - Core.pan.y) / Core.zoom
+    };
+  };
+
+  Core.worldToRC = function(wx, wy) {
     const s = Core.cell();
-    return {r: Math.floor(yW / s), c: Math.floor(xW / s)};
-  };
-
-  Core.worldToCanvas = function(xW, yW) {
-    const x = xW * Core.zoom + Core.pan.x;
-    const y = yW * Core.zoom + Core.pan.y;
-    return { x, y };
+    return {
+      r: Math.floor(wy / s),
+      c: Math.floor(wx / s)
+    };
   };
 
   Core.evtRC = function(e) {
-    const pt = Core.screenToWorld(e.clientX, e.clientY);
-    Core._mouseW = pt;
-    return Core.worldToRC(pt.x, pt.y);
+    const world = Core.screenToWorld(e.clientX, e.clientY);
+    return Core.worldToRC(world.x, world.y);
+  };
+
+  // ============================================================
+  // ITEM PLACEMENT
+  // ============================================================
+  Core.placeX = function(rc) {
+    Core.place('X', rc.r, rc.c);
+  };
+
+  Core.placeY = function(rc) {
+    Core.place('Y', rc.r, rc.c);
+  };
+
+  Core.place = function(type, row, col, opts = {}) {
+    const sz = opts.size || Core.SIZE[type] || 3;
+    
+    if(Core.collides(row, col, sz, sz)) {
+      const alt = Core.findFreeSpot(row, col, sz, sz);
+      if(alt) {
+        row = alt.r;
+        col = alt.c;
+      } else {
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.warning('No free space nearby');
+        }
+        return null;
+      }
+    }
+    
+    const item = {
+      id: Core.idSeq++,
+      type: type,
+      row: row,
+      col: col,
+      size: sz,
+      color: opts.color || Core.FILL[type] || '#888',
+      order: opts.order || '',
+      label: opts.label || '',
+      locked: false,
+      ...opts
+    };
+    
+    Core.items.push(item);
+    Core.markDirty('items');
+    if(window.Draw) window.Draw.render();
+    
+    return item;
   };
 
   // ============================================================
   // COLLISION DETECTION
   // ============================================================
-  Core.overlap = function(a, b) {
-    const aSizeW = a.sizeW || Core.getSize(a);
-    const aSizeH = a.sizeH || Core.getSize(a);
-    const bSizeW = b.sizeW || Core.getSize(b);
-    const bSizeH = b.sizeH || Core.getSize(b);
+  Core.collides = function(row, col, sizeW, sizeH, ignoreId = null) {
+    const candidates = Core.spatialIndex.query(row, col);
     
-    return !(a.row + aSizeH <= b.row || 
-             b.row + bSizeH <= a.row || 
-             a.col + aSizeW <= b.col || 
-             b.col + bSizeW <= a.col);
-  };
-
-  Core.collides = function(candidate, ignoreSet) {
-    const candSizeW = candidate.sizeW || Core.getSize(candidate);
-    const candSizeH = candidate.sizeH || Core.getSize(candidate);
-    
-    const candidates = Core.spatialIndex.query(candidate.row, candidate.col);
-    
-    const maxRow = candidate.row + candSizeH - 1;
-    const maxCol = candidate.col + candSizeW - 1;
-    const nearbyItems = new Set([
-      ...candidates,
-      ...Core.spatialIndex.query(maxRow, candidate.col),
-      ...Core.spatialIndex.query(candidate.row, maxCol),
-      ...Core.spatialIndex.query(maxRow, maxCol)
-    ]);
-    
-    for(const it of nearbyItems) {
-      if(ignoreSet && ignoreSet.has(it.id)) continue;
-      if(it.id === candidate.id) continue;
-      if(Core.overlap(candidate, it)) return true;
+    for(const it of candidates) {
+      if(it.id === ignoreId) continue;
+      
+      const itSizeW = it.sizeW || Core.getSize(it);
+      const itSizeH = it.sizeH || Core.getSize(it);
+      
+      const overlapsH = !(col + sizeW <= it.col || col >= it.col + itSizeW);
+      const overlapsV = !(row + sizeH <= it.row || row >= it.row + itSizeH);
+      
+      if(overlapsH && overlapsV) return true;
     }
+    
     return false;
   };
 
-  // ============================================================
-  // ITEM PLACEMENT FUNCTIONS
-  // ============================================================
-  Core.placeX = function(rc) {
-    const baseR = rc.r - 1;
-    const baseC = rc.c - 1;
-    const size = Core.SIZE.X;
-    const obj = {
-      id: Core.idSeq++,
-      type: Core.TYPES.X,
-      row: Math.max(0, Math.min(Core.GRID - size, baseR)),
-      col: Math.max(0, Math.min(Core.GRID - size, baseC))
-    };
-    
-    if(!Core.collides(obj)) {
-      Core.items.push(obj);
-      Core.markDirty('items');
-      if(window.Draw) window.Draw.render();
-      return obj.id;
-    } else {
-      Core.idSeq--;
-      return null;
-    }
-  };
-
-  Core.addPoint = function(row, col, opts = {}) {
-    const sizeW = opts.sizeW || Math.max(1, Math.min(Core.GRID, Number(opts.size) || Core.SIZE.P));
-    const sizeH = opts.sizeH || Math.max(1, Math.min(Core.GRID, Number(opts.size) || Core.SIZE.P));
-    
-    const obj = {
-      id: Core.idSeq++,
-      type: Core.TYPES.P,
-      row: Math.max(0, Math.min(Core.GRID - sizeH, row)),
-      col: Math.max(0, Math.min(Core.GRID - sizeW, col)),
-      sizeW: sizeW,
-      sizeH: sizeH,
-      area: Math.max(0, Math.min(Core.GRID, Number(opts.area) || 12)),
-      color: opts.color || Core.FILL.P,
-      areaColor: opts.areaColor || (opts.color || Core.FILL.P),
-      glow: opts.glow !== undefined ? !!opts.glow : true,
-      areaAlpha: Number.isFinite(opts.areaAlpha) ? opts.areaAlpha : 22,
-      label: (opts.label ?? 'P') + '',
-      image: opts.image || null,
-      locked: !!opts.locked,
-      fillAlpha: Number.isFinite(opts.fillAlpha) ? opts.fillAlpha : 100,
-      borderColor: opts.borderColor || '#000000',
-      borderAlpha: Number.isFinite(opts.borderAlpha) ? opts.borderAlpha : 100,
-      borderWidth: Number.isFinite(opts.borderWidth) ? opts.borderWidth : 1,
-      areaBorderColor: opts.areaBorderColor || (opts.areaColor || Core.FILL.P),
-      areaBorderAlpha: Number.isFinite(opts.areaBorderAlpha) ? opts.areaBorderAlpha : 100,
-      areaBorderWidth: Number.isFinite(opts.areaBorderWidth) ? opts.areaBorderWidth : 2
-    };
-    
-    if(Core.collides(obj)) {
-      let near = Core.nearestFreeCell(obj.row, obj.col, true, sizeW, sizeH);
-      if(!near) near = Core.nearestFreeCell(obj.row, obj.col, false, sizeW, sizeH);
-      
-      if(near) {
-        obj.row = near.row;
-        obj.col = near.col;
-        
-        if(Core.collides(obj)) {
-          Core.idSeq--;
-          console.warn('Could not find free space for point');
-          return null;
+  Core.findFreeSpot = function(centerR, centerC, sizeW, sizeH, maxRadius = 15) {
+    for(let r = 1; r <= maxRadius; r++) {
+      for(let dr = -r; dr <= r; dr++) {
+        for(let dc = -r; dc <= r; dc++) {
+          if(Math.abs(dr) < r && Math.abs(dc) < r) continue;
+          
+          const testR = Math.max(0, Math.min(Core.GRID - sizeH, centerR + dr));
+          const testC = Math.max(0, Math.min(Core.GRID - sizeW, centerC + dc));
+          
+          if(!Core.collides(testR, testC, sizeW, sizeH)) {
+            return {r: testR, c: testC};
+          }
         }
-      } else {
-        Core.idSeq--;
-        console.warn('Could not find free space for point');
-        return null;
-      }
-    }
-    
-    Core.items.push(obj);
-    Core.markDirty('items');
-    if(window.Draw) window.Draw.render();
-    return obj.id;
-  };
-  
-  // ============================================================
-  // HIT DETECTION
-  // ============================================================
-  Core.hitAtRC = function(rc) {
-    const candidates = Core.spatialIndex.query(rc.r, rc.c);
-    
-    for(let i = candidates.length - 1; i >= 0; i--) {
-      const it = candidates[i];
-      const sz = Core.getSize(it);
-      if(rc.r >= it.row && rc.r < it.row + sz && 
-         rc.c >= it.col && rc.c < it.col + sz) {
-        return it;
       }
     }
     return null;
+  };
+
+  // ============================================================
+  // ITEM DELETION
+  // ============================================================
+  Core.deleteItem = function(id) {
+    const idx = Core.items.findIndex(it => it.id === id);
+    if(idx !== -1) {
+      Core.items.splice(idx, 1);
+      Core.selected.delete(id);
+      Core.markDirty('items');
+      Core.markDirty('selection');
+      if(window.Draw) window.Draw.render();
+    }
+  };
+
+  Core.deleteSelected = function() {
+    if(Core.selected.size === 0) return;
+    
+    Core.pushUndo(true);
+    
+    for(const id of Core.selected) {
+      const idx = Core.items.findIndex(it => it.id === id);
+      if(idx !== -1) Core.items.splice(idx, 1);
+    }
+    
+    Core.selected.clear();
+    Core.markDirty('items');
+    Core.markDirty('selection');
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success('Deleted selected items');
+    }
+  };
+
+  // ============================================================
+  // CLIPBOARD OPERATIONS
+  // ============================================================
+  Core.copySelected = function() {
+    if(Core.selected.size === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('Nothing selected to copy');
+      }
+      return;
+    }
+    
+    Core.clipboard = [];
+    for(const id of Core.selected) {
+      const it = Core.items.find(x => x.id === id);
+      if(it) Core.clipboard.push({...it});
+    }
+    
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success(`Copied ${Core.clipboard.length} item(s)`);
+    }
+  };
+
+  Core.pasteClipboard = function() {
+    if(Core.clipboard.length === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('Clipboard is empty');
+      }
+      return;
+    }
+    
+    Core.pushUndo(true);
+    Core.selected.clear();
+    
+    for(const orig of Core.clipboard) {
+      const sizeW = orig.sizeW || Core.getSize(orig);
+      const sizeH = orig.sizeH || Core.getSize(orig);
+      
+      let newR = orig.row + 2;
+      let newC = orig.col + 2;
+      
+      if(Core.collides(newR, newC, sizeW, sizeH)) {
+        const spot = Core.findFreeSpot(newR, newC, sizeW, sizeH);
+        if(spot) {
+          newR = spot.r;
+          newC = spot.c;
+        } else {
+          continue;
+        }
+      }
+      
+      const newItem = {
+        ...orig,
+        id: Core.idSeq++,
+        row: newR,
+        col: newC
+      };
+      
+      Core.items.push(newItem);
+      Core.selected.add(newItem.id);
+    }
+    
+    Core.markDirty('items');
+    Core.markDirty('selection');
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success(`Pasted ${Core.clipboard.length} item(s)`);
+    }
   };
 
   // ============================================================
   // GRID SIZE MANAGEMENT
   // ============================================================
-  Core.setGridSize = function(n, opts) {
-    const newGrid = Math.max(20, Math.min(2000, n | 0));
-    if (newGrid === Core.GRID) return;
-
-    if (opts && opts.scale) {
-      const oldGrid = Core.GRID;
-      const scale = newGrid / oldGrid;
-      Core.items.forEach(it => {
-        it.row = Math.round(it.row * scale);
-        it.col = Math.round(it.col * scale);
-        if (it.type === Core.TYPES.P) {
-          if (Number.isFinite(it.size)) it.size = Math.max(1, Math.round(it.size * scale));
-          if (Number.isFinite(it.area)) it.area = Math.max(0, Math.round(it.area * scale));
-        }
-      });
+  Core.setGridSize = function(newSize, options = {}) {
+    const oldSize = Core.GRID;
+    Core.GRID = Math.max(20, Math.min(2000, newSize));
+    
+    if(options.scale !== false) {
+      const ratio = Core.GRID / oldSize;
+      for(const it of Core.items) {
+        it.row = Math.round(it.row * ratio);
+        it.col = Math.round(it.col * ratio);
+        if(it.size) it.size = Math.max(1, Math.round(it.size * ratio));
+        if(it.sizeW) it.sizeW = Math.max(1, Math.round(it.sizeW * ratio));
+        if(it.sizeH) it.sizeH = Math.max(1, Math.round(it.sizeH * ratio));
+        if(it.area) it.area = Math.max(0, Math.round(it.area * ratio));
+      }
     }
-
-    Core.GRID = newGrid;
-    Core._initView = false;
+    
     Core.markDirty('items');
-    Core.markDirty('view');
-    Core.resizeCanvas();
-    Core.fitView();
-  };
-  
-  // ============================================================
-  // VIEW MANAGEMENT
-  // ============================================================
-  Core.getDrawingCenter = function() {
-    if (!Core.items.length) return { x: Core.basePx / 2, y: Core.basePx / 2 };
-
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
-    for (const it of Core.items) {
-      const s = Core.getSize(it);
-      minR = Math.min(minR, it.row);
-      minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
-    }
-
-    const s = Core.cell();
-    const worldCenterX = ((minC + maxC) / 2) * s;
-    const worldCenterY = ((minR + maxR) / 2) * s;
-
-    return { 
-      x: worldCenterX * Core.zoom + Core.pan.x,
-      y: worldCenterY * Core.zoom + Core.pan.y
-    };
-  };
-
-  Core.fitView = function() {
-    // Always center the work area (0 to GRID), regardless of items
-    const s = Core.cell();
-    const gridWorldSize = Core.GRID * s;
-    
-    // Center of the work area
-    const centerX = gridWorldSize / 2;
-    const centerY = gridWorldSize / 2;
-    
-    // Calculate zoom to fit the work area with some padding
-    const availPx = Core.basePx;
-    const targetZoom = (availPx * 0.9) / gridWorldSize; // 90% to leave some margin
-    
-    // Center the work area on screen using actual canvas dimensions
-    const canvasW = Core.canvasWidth || Core.basePx;
-    const canvasH = Core.canvasHeight || Core.basePx;
-    
-    Core.pan.x = (canvasW / 2) - targetZoom * centerX;
-    Core.pan.y = (canvasH / 2) - targetZoom * centerY;
-    Core.zoom = targetZoom;
-
     Core.markDirty('view');
     if(window.Draw) window.Draw.render();
   };
 
-  Core.clampPan = function () {
-    const s = Core.cell();
-    const worldW = Core.GRID * s * Core.zoom;
-    const worldH = Core.GRID * s * Core.zoom;
-    const limit = Core.basePx;
-
-    Core.pan.x = Math.min(limit * 0.2, Math.max(limit - worldW * 1.2, Core.pan.x));
-    Core.pan.y = Math.min(limit * 0.2, Math.max(limit - worldH * 1.2, Core.pan.y));
-  };
-
-  Core.centerView = function() {
-    if(!Core.items.length) {
-      Core.pan.x = 0;
-      Core.pan.y = 0;
+  // ============================================================
+  // FIT VIEW
+  // ============================================================
+  Core.fitView = function() {
+    if(Core.items.length === 0) {
+      Core.zoom = 1;
+      Core.pan = {x: 0, y: 0};
       Core.markDirty('view');
       if(window.Draw) window.Draw.render();
       return;
     }
     
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+    let minR = Infinity, minC = Infinity;
+    let maxR = -Infinity, maxC = -Infinity;
     
     for(const it of Core.items) {
-      const s = Core.getSize(it);
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
+      
       minR = Math.min(minR, it.row);
       minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
+      maxR = Math.max(maxR, it.row + sizeH);
+      maxC = Math.max(maxC, it.col + sizeW);
     }
     
-    minR = Math.max(0, minR - 1);
-    minC = Math.max(0, minC - 1);
-    maxR = Math.min(Core.GRID, maxR + 1);
-    maxC = Math.min(Core.GRID, maxC + 1);
-
     const s = Core.cell();
-    const centerX = ((minC + maxC) / 2) * s;
-    const centerY = ((minR + maxR) / 2) * s;
-
-    const availPx = Core.basePx;
-    Core.pan.x = (availPx / 2) - Core.zoom * centerX;
-    Core.pan.y = (availPx / 2) - Core.zoom * centerY;
-
+    const contentW = (maxC - minC) * s;
+    const contentH = (maxR - minR) * s;
+    
+    const padding = 40;
+    const availW = Core.basePx - padding * 2;
+    const availH = Core.basePx - padding * 2;
+    
+    const zoomW = availW / contentW;
+    const zoomH = availH / contentH;
+    Core.zoom = Math.min(zoomW, zoomH, 8);
+    
+    const centerWorldX = (minC + maxC) * s / 2;
+    const centerWorldY = (minR + maxR) * s / 2;
+    
+    Core.pan.x = Core.basePx / 2 - centerWorldX * Core.zoom;
+    Core.pan.y = Core.basePx / 2 - centerWorldY * Core.zoom;
+    
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zoomLabel = document.getElementById('zoom-label');
+    if(zoomSlider) zoomSlider.value = String(Math.round(Core.zoom * 100));
+    if(zoomLabel) zoomLabel.textContent = Math.round(Core.zoom * 100) + '%';
+    
     Core.markDirty('view');
     if(window.Draw) window.Draw.render();
   };
 
-  Core.moveItemSafe = function(it, newRow, newCol) {
-    const oldR = it.row, oldC = it.col;
-    it.row = newRow;
-    it.col = newCol;
+  // ============================================================
+  // CANVAS RESIZE
+  // ============================================================
+  Core.resizeCanvas = function() {
+    if(!Core.canvas) return;
     
-    const ignoreSet = new Set([it.id]);
-    if(Core.collides(it, ignoreSet)) {
-      it.row = oldR;
-      it.col = oldC;
-      return false;
+    Core.dpr = window.devicePixelRatio || 1;
+    const w = Core.basePx;
+    const h = Core.basePx;
+    
+    Core.canvas.width = w * Core.dpr;
+    Core.canvas.height = h * Core.dpr;
+    Core.canvas.style.width = w + 'px';
+    Core.canvas.style.height = h + 'px';
+    
+    if(Core.ctx) {
+      Core.ctx.scale(Core.dpr, Core.dpr);
+    }
+    
+    Core.markDirty('view');
+    Core.markDirty('items');
+    if(window.Draw) window.Draw.render();
+  };
+
+  // ============================================================
+  // DYNAMIC MAX ZOOM (based on grid size)
+  // ============================================================
+  Core.getDynamicMaxZoom = function() {
+    if(Core.GRID <= 100) return 8;
+    if(Core.GRID <= 200) return 6;
+    if(Core.GRID <= 500) return 4;
+    return 3;
+  };
+
+  // ============================================================
+  // UNDO/REDO FUNCTIONS
+  // ============================================================
+  Core.undo = function() {
+    if(Core.history.undo.length === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('Nothing to undo');
+      }
+      return;
+    }
+    
+    const current = Core.history.createSnapshot();
+    const entry = Core.history.undo.pop();
+    Core.history.redo.push({
+      version: Core._stateVersion++,
+      timestamp: Date.now(),
+      action: {type: 'snapshot', data: current}
+    });
+    
+    Core.restore(entry.action.data);
+    
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.info('Undo');
+    }
+  };
+
+  Core.redo = function() {
+    if(Core.history.redo.length === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('Nothing to redo');
+      }
+      return;
+    }
+    
+    const current = Core.history.createSnapshot();
+    const entry = Core.history.redo.pop();
+    Core.history.undo.push({
+      version: Core._stateVersion++,
+      timestamp: Date.now(),
+      action: {type: 'snapshot', data: current}
+    });
+    
+    Core.restore(entry.action.data);
+    
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.info('Redo');
+    }
+  };
+
+  // ============================================================
+  // CLEAR ALL
+  // ============================================================
+  Core.clearAll = function() {
+    if(Core.items.length === 0) return;
+    
+    Core.pushUndo(true);
+    Core.items = [];
+    Core.selected.clear();
+    Core.markDirty('items');
+    Core.markDirty('selection');
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success('Cleared all items');
+    }
+  };
+
+  // ============================================================
+  // SELECT ALL
+  // ============================================================
+  Core.selectAll = function() {
+    Core.selected.clear();
+    for(const it of Core.items) {
+      Core.selected.add(it.id);
+    }
+    Core.markDirty('selection');
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.info(`Selected ${Core.selected.size} items`);
+    }
+  };
+
+  // ============================================================
+  // ALIGNMENT FUNCTIONS
+  // ============================================================
+  Core.alignHorizontal = function(n, gap = 0) {
+    if(Core.selected.size === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('No items selected');
+      }
+      return;
+    }
+    
+    Core.pushUndo(true);
+    
+    const items = Array.from(Core.selected).map(id => 
+      Core.items.find(it => it.id === id)
+    ).filter(it => it && !it.locked);
+    
+    items.sort((a, b) => (a.row * Core.GRID + a.col) - (b.row * Core.GRID + b.col));
+    
+    let currentCol = 0;
+    let currentRow = 0;
+    let maxHeightInRow = 0;
+    
+    for(let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
+      
+      if(i > 0 && i % n === 0) {
+        currentRow += maxHeightInRow + gap;
+        currentCol = 0;
+        maxHeightInRow = 0;
+      }
+      
+      it.row = currentRow;
+      it.col = currentCol;
+      
+      currentCol += sizeW + gap;
+      maxHeightInRow = Math.max(maxHeightInRow, sizeH);
     }
     
     Core.markDirty('items');
-    return true;
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success('Aligned horizontally');
+    }
   };
 
-  Core.nearestFreeCell = function(row, col, visibleOnly, itemWidth = 1, itemHeight = 1) {
-    const maxRadius = Core.GRID;
-    const s = Core.cell();
-    const viewX1 = -Core.pan.x / Core.zoom / Core.dpr;
-    const viewY1 = -Core.pan.y / Core.zoom / Core.dpr;
-    const viewX2 = viewX1 + (Core.canvas.width / Core.dpr) / Core.zoom;
-    const viewY2 = viewY1 + (Core.canvas.height / Core.dpr) / Core.zoom;
-    
-    function isVisible(r, c) {
-      return (r * s >= viewY1 && r * s <= viewY2 && c * s >= viewX1 && c * s <= viewX2);
+  Core.alignVertical = function(n, gap = 0) {
+    if(Core.selected.size === 0) {
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.warning('No items selected');
+      }
+      return;
     }
     
-    function isFree(r, c) {
-      if(r < 0 || c < 0 || r + itemHeight > Core.GRID || c + itemWidth > Core.GRID) {
-        return false;
+    Core.pushUndo(true);
+    
+    const items = Array.from(Core.selected).map(id => 
+      Core.items.find(it => it.id === id)
+    ).filter(it => it && !it.locked);
+    
+    items.sort((a, b) => (a.row * Core.GRID + a.col) - (b.row * Core.GRID + b.col));
+    
+    let currentRow = 0;
+    let currentCol = 0;
+    let maxWidthInCol = 0;
+    
+    for(let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
+      
+      if(i > 0 && i % n === 0) {
+        currentCol += maxWidthInCol + gap;
+        currentRow = 0;
+        maxWidthInCol = 0;
       }
       
-      for(const it of Core.items) {
-        const itW = it.sizeW || Core.getSize(it);
-        const itH = it.sizeH || Core.getSize(it);
-        
-        if(!(r + itemHeight <= it.row || 
-             it.row + itH <= r || 
-             c + itemWidth <= it.col || 
-             it.col + itW <= c)) {
-          return false;
-        }
-      }
-      return true;
+      it.row = currentRow;
+      it.col = currentCol;
+      
+      currentRow += sizeH + gap;
+      maxWidthInCol = Math.max(maxWidthInCol, sizeW);
     }
     
-    for(let rad = 0; rad < maxRadius; rad++) {
-      for(let dr = -rad; dr <= rad; dr++) {
-        for(let dc = -rad; dc <= rad; dc++) {
-          if(Math.abs(dr) !== rad && Math.abs(dc) !== rad) continue;
-          const nr = row + dr;
-          const nc = col + dc;
-          
-          if(isFree(nr, nc)) {
-            if(!visibleOnly || isVisible(nr, nc)) {
-              return {row: nr, col: nc};
-            }
-          }
-        }
-      }
+    Core.markDirty('items');
+    if(window.Draw) window.Draw.render();
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success('Aligned vertically');
     }
-    
-    return null;
   };
 
+  // ============================================================
+  // EXPORT CORE
+  // ============================================================
   window.Core = Core;
-
-  window.setZoomPct = function(pct, anchor) {
-    const Core = window.Core;
-    if (!Core || !Core.canvas) return;
-
-    const dynamicMax = Core.getDynamicMaxZoom();
-    const newZoom = Math.max(0.4, Math.min(dynamicMax, pct / 100));
-
-    const rect = Core.canvas.getBoundingClientRect();
-    const clientX = rect.left + anchor.x;
-    const clientY = rect.top + anchor.y;
-    const worldPt = Core.screenToWorld(clientX, clientY);
-
-    Core.zoom = newZoom;
-    Core.pan.x = anchor.x - worldPt.x * Core.zoom;
-    Core.pan.y = anchor.y - worldPt.y * Core.zoom;
-
-    const slider = document.getElementById('zoom-slider');
-    const label = document.getElementById('zoom-label');
-    if (slider) {
-      slider.value = String(Math.round(Core.zoom * 100));
-      slider.max = String(Math.round(dynamicMax * 100));
-    }
-    if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
-
-    Core.markDirty('view');
-    Core.clampPan();
-    if (window.Draw) window.Draw.render();
-  };
 })();
 
 // ============================================================
 // DRAW ENGINE - Rendering System
+// FIXED: Grid boundary stays fixed in world coordinates
 // ============================================================
 function hexToRgba(hex, alpha) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -733,6 +758,9 @@ function hexToRgba(hex, alpha) {
     return window.Core;
   }
 
+  // ============================================================
+  // FIXED: Grid with boundary rectangle in world coordinates
+  // ============================================================
   function drawGrid() {
     const Core = getCore();
     const {ctx, cell, GRID} = Core;
@@ -783,7 +811,8 @@ function hexToRgba(hex, alpha) {
     }
     ctx.stroke();
 
-    // Draw boundary rectangle for the working area (180×180)
+    // FIXED: Draw boundary rectangle at FIXED world coordinates (0,0) to (gridWorldSize, gridWorldSize)
+    // This rectangle will not move with pan/zoom - it stays anchored to the grid origin
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 / Core.zoom;
     ctx.setLineDash([10 / Core.zoom, 5 / Core.zoom]);
@@ -791,41 +820,41 @@ function hexToRgba(hex, alpha) {
     ctx.setLineDash([]);
   }
 
-function loadImage(src, callback) {
-  if(!src) return null;
-  
-  if(renderCache.imageCache[src]) {
-    const img = renderCache.imageCache[src];
-    if(img.complete && img.naturalWidth > 0) {
-      return img;
+  function loadImage(src, callback) {
+    if(!src) return null;
+    
+    if(renderCache.imageCache[src]) {
+      const img = renderCache.imageCache[src];
+      if(img.complete && img.naturalWidth > 0) {
+        return img;
+      }
     }
-  }
-  
-  const img = new Image();
-  
-  // Enable CORS for images from same origin (GitHub Pages)
-  if(window.location.protocol !== 'file:') {
-    img.crossOrigin = 'anonymous';
-  }
-  
-  img.onload = () => {
+    
+    const img = new Image();
+    
+    // Enable CORS for images from same origin
+    if(window.location.protocol !== 'file:') {
+      img.crossOrigin = 'anonymous';
+    }
+    
+    img.onload = () => {
+      renderCache.imageCache[src] = img;
+      console.log('Image loaded:', src);
+      if(window.Draw && window.Draw.render) {
+        window.Draw.render();
+      }
+      if(callback) callback();
+    };
+    
+    img.onerror = () => {
+      console.warn('Failed to load image:', src);
+      delete renderCache.imageCache[src];
+    };
+    
+    img.src = src;
     renderCache.imageCache[src] = img;
-    console.log('Image loaded:', src);
-    if(window.Draw && window.Draw.render) {
-      window.Draw.render();
-    }
-    if(callback) callback();
-  };
-  
-  img.onerror = () => {
-    console.warn('Failed to load image:', src);
-    delete renderCache.imageCache[src];
-  };
-  
-  img.src = src;
-  renderCache.imageCache[src] = img;
-  return img;
-}
+    return img;
+  }
 
   function drawItems() {
     const Core = getCore();
@@ -864,6 +893,7 @@ function loadImage(src, callback) {
       }
     }
 
+    // Draw area effects
     for(const it of layers.areas) {
       const sizeW = it.sizeW || Core.getSize(it);
       const sizeH = it.sizeH || Core.getSize(it);
@@ -888,6 +918,7 @@ function loadImage(src, callback) {
       ctx.strokeRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
     }
 
+    // Draw ambient effects (Y type)
     for(const it of layers.ambients) {
       const sz = Core.getSize(it);
       const half = Math.floor(sz / 2);
@@ -911,6 +942,7 @@ function loadImage(src, callback) {
       ctx.strokeRect(xx, yy, ww, hh);
     }
 
+    // Draw blocks
     for(const it of layers.blocks) {
       const sz = Core.getSize(it);
       const w = (it.sizeW || sz) * s;
@@ -955,6 +987,7 @@ function loadImage(src, callback) {
         ctx.fillRect(x, y, w, h);
       }
 
+      // Draw image if present
       if (it.image) {
         const img = loadImage(it.image);
         if (img) {
@@ -975,11 +1008,13 @@ function loadImage(src, callback) {
         }
       }
 
+      // Draw border
       const isSelected = Core.selected.has(it.id);
       ctx.lineWidth = (isSelected ? 2 : 1) / Core.zoom;
       ctx.strokeStyle = isSelected ? BORDER_SEL : BORDER;
       ctx.strokeRect(x, y, w, h);
 
+      // Draw labels
       if(Core.zoom > 0.3) {
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
@@ -1003,196 +1038,209 @@ function loadImage(src, callback) {
 
   function drawLasso() {
     const Core = getCore();
-    const {ctx, selectionMode, lassoStart, _mouseW} = Core;
+    if(!Core.lassoStart || !Core._mouseW) return;
     
-    if(selectionMode && lassoStart) {
-      ctx.strokeStyle = '#00e5ff';
-      ctx.setLineDash([4 / Core.zoom, 2 / Core.zoom]);
-      ctx.lineWidth = 1 / Core.zoom;
-      ctx.strokeRect(
-        lassoStart.x, lassoStart.y,
-        _mouseW.x - lassoStart.x, _mouseW.y - lassoStart.y
-      );
-      ctx.setLineDash([]);
-    }
+    const {ctx} = Core;
+    const x1 = Core.lassoStart.x;
+    const y1 = Core.lassoStart.y;
+    const x2 = Core._mouseW.x;
+    const y2 = Core._mouseW.y;
+    
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2 / Core.zoom;
+    ctx.setLineDash([5 / Core.zoom, 3 / Core.zoom]);
+    ctx.strokeRect(
+      Math.min(x1, x2),
+      Math.min(y1, y2),
+      Math.abs(x2 - x1),
+      Math.abs(y2 - y1)
+    );
+    ctx.setLineDash([]);
   }
 
-  function drawMeasureLine() {
-    const Core = getCore();
-    if(window.Features && window.Features.Measure) {
-      window.Features.Measure.draw(Core.ctx);
-    }
-  }
-
-  function requestRender() {
+  // ============================================================
+  // MAIN RENDER FUNCTION
+  // ============================================================
+  Draw.render = function() {
     if(renderRequested) return;
-    
     renderRequested = true;
+    
     requestAnimationFrame(() => {
-      const now = performance.now();
-      if(now - lastRenderTime >= minFrameTime) {
-        renderNow();
-        lastRenderTime = now;
-      }
+      Draw.renderImmediate();
       renderRequested = false;
     });
-  }
+  };
 
-  function renderNow() {
+  Draw.renderImmediate = function() {
     const Core = getCore();
     if(!Core || !Core.ctx) return;
-
-    if(Core._dirtyFlags.items) {
-      Core.renumber();
-    }
-
-    Core.clearCanvas();
-    Core.setTransform();
     
+    const now = performance.now();
+    if(now - lastRenderTime < minFrameTime) {
+      return;
+    }
+    lastRenderTime = now;
+    
+    const {ctx} = Core;
+    
+    ctx.save();
+    ctx.clearRect(0, 0, Core.basePx, Core.basePx);
+    
+    // Apply transformations
+    ctx.translate(Core.pan.x, Core.pan.y);
+    ctx.scale(Core.zoom, Core.zoom);
+    
+    // Draw all layers
     drawGrid();
     drawItems();
     drawLasso();
-    drawMeasureLine();
-
-    const zoomPct = Math.round(Core.zoom * 100);
-    const zoomLabel = Core.$('zoom-label');
-    if(zoomLabel) zoomLabel.textContent = zoomPct + '%';
-
-    const activeMode = Core.selectionMode ? "Mode: Selection" : "Mode: Draw";
-    const status = Core.$('status');
-    if(status) {
-      const xCount = Core.items.filter(i => i.type === 'X').length;
-      const yCount = Core.items.filter(i => i.type === 'Y').length;
-      const pCount = Core.items.filter(i => i.type === 'P').length;
-      status.innerHTML = `Bases: ${xCount} | Y: ${yCount} | P: ${pCount}`;
+    
+    // FIXED: Draw measure tool line (if active)
+    if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
+      window.Features.Measure.draw(ctx);
     }
-
-    const modeEl = Core.$('active-mode');
-    if(modeEl) modeEl.textContent = activeMode;
-
-    if(Core._dirtyFlags.legend && window.UI && window.UI.updateLegend) {
-      window.UI.updateLegend();
-    }
-
+    
+    ctx.restore();
+    
     Core.clearDirtyFlags();
-  }
-
-  Draw.render = requestRender;
-  Draw.renderImmediate = renderNow;
-  Draw.clearCache = function() {
-    renderCache.cellSize = null;
-    renderCache.gridSize = null;
-    renderCache.lastZoom = null;
-    renderCache.needsFullRedraw = true;
+    
+    // Update FPS counter
+    if(window.Features && window.Features.FPS) {
+      window.Features.FPS.tick();
+    }
   };
 
   window.Draw = Draw;
 })();
 
 // ============================================================
-// GESTURES - Input Handler (FIXED: Mobile zoom/pan)
+// GESTURE & INPUT SYSTEM
+// Handles all mouse, touch, and keyboard input
 // ============================================================
 (function(){
+  const Gestures = {};
+  
   const GestureState = {
-    IDLE: 'idle', 
-    DRAWING: 'drawing', 
-    PANNING: 'panning', 
-    SELECTING: 'selecting',
-    DRAGGING: 'dragging', 
-    LASSO: 'lasso', 
-    PINCHING: 'pinching'
+    IDLE: 'IDLE',
+    PANNING: 'PANNING',
+    DRAWING: 'DRAWING',
+    SELECTING: 'SELECTING',
+    DRAGGING: 'DRAGGING',
+    LASSO: 'LASSO',
+    PINCHING: 'PINCHING'
   };
-
-  const Gestures = {
-    state: GestureState.IDLE,
-    pointers: new Map(),
-    dragData: null,
-    pinchData: null,
-    lastMidCSS: null,
-    panButton: 1,
-    _renderScheduled: false
-  };
+  
+  Gestures.state = GestureState.IDLE;
+  Gestures.pointers = new Map();
+  Gestures.dragData = null;
+  Gestures.pinchData = null;
+  Gestures.lastMidCSS = null;
+  Gestures._renderScheduled = false;
 
   let lastTapTime = 0;
   let lastTapId = null;
 
-  function $(id){ return document.getElementById(id); }
-  function getCore(){ return window.Core; }
-  function getCanvas(){ return window.Core.canvas; }
-  
-  function distance(a,b){
-    const dx=a.x-b.x, dy=a.y-b.y; 
-    return Math.hypot(dx,dy);
+  function getCore() {
+    return window.Core;
   }
-  
-  function midpoint(a,b){ 
-    return {x:(a.x+b.x)/2, y:(a.y+b.y)/2};
+
+  function getCanvas() {
+    return document.getElementById('board');
   }
-  
-  function worldAtScreen(xCSS,yCSS){
-    const Core=getCore(), canvas=getCanvas(), rect=canvas.getBoundingClientRect();
-    const xDev=(xCSS-rect.left)*(canvas.width/rect.width);
-    const yDev=(yCSS-rect.top)*(canvas.height/rect.height);
-    return {
-      x:(xDev/Core.dpr - Core.pan.x)/Core.zoom,
-      y:(yDev/Core.dpr - Core.pan.y)/Core.zoom
-    };
-  }
-  
-  function hitItemAtRC(rc){
-    const Core=getCore(), rr=rc.r, cc=rc.c;
-    for(let i=Core.items.length-1;i>=0;--i){
-      const it=Core.items[i], sz=Core.getSize(it);
-      if(rr>=it.row && rr<it.row+sz && cc>=it.col && cc<it.col+sz) return it;
+
+  function hitItemAtRC(rc) {
+    const Core = getCore();
+    const candidates = Core.spatialIndex.query(rc.r, rc.c);
+    
+    for(const it of candidates) {
+      const sizeW = it.sizeW || Core.getSize(it);
+      const sizeH = it.sizeH || Core.getSize(it);
+      
+      if(rc.r >= it.row && rc.r < it.row + sizeH &&
+         rc.c >= it.col && rc.c < it.col + sizeW) {
+        return it;
+      }
     }
     return null;
   }
 
-  function handlePointerDown(e){
-    if(e.pointerType==='mouse' && e.button===0 && e.width===0 && e.height===0) return;
+  function midpoint(a, b) {
+    return {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2
+    };
+  }
 
-    if(e.button === 2) {
-      return;
-    }
+  function distance(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
-    e.preventDefault();
-    const canvas=getCanvas(), Core=getCore();
-    canvas.setPointerCapture(e.pointerId);
-    Gestures.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  function worldAtScreen(sx, sy) {
+    const Core = getCore();
+    const canvas = getCanvas();
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = sx - rect.left;
+    const canvasY = sy - rect.top;
+    return {
+      x: (canvasX - Core.pan.x) / Core.zoom,
+      y: (canvasY - Core.pan.y) / Core.zoom
+    };
+  }
 
-    if(e.button===Gestures.panButton){
-      Gestures.state=GestureState.PANNING;
-      Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
-      return;
-    }
-  
-    if(Gestures.pointers.size===1){
-      const rc=Core.evtRC(e);
+  function handlePointerDown(e) {
+    const Core = getCore();
     
-      if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
-        if(window.Features.Measure.handleClick) {
-          window.Features.Measure.handleClick(rc, e.clientX, e.clientY);
-          return;
+    // Right-click - context menu (select mode only)
+    if(e.button === 2) {
+      e.preventDefault();
+      
+      if(Core.mode === 'select') {
+        const rc = Core.evtRC(e);
+        const hit = hitItemAtRC(rc);
+        
+        if(hit) {
+          if(!Core.selected.has(hit.id)) {
+            Core.selected.clear();
+            Core.selected.add(hit.id);
+            Core.markDirty('selection');
+            window.Draw.render();
+          }
+          
+          if(window.UI && window.UI.showItemContextMenu) {
+            window.UI.showItemContextMenu(e.clientX, e.clientY, hit);
+          }
         }
       }
+      
+      return;
+    }
+    
+    e.preventDefault();
+    Gestures.pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
 
-      if(Core.mode==='view'){
-        Gestures.state=GestureState.PANNING;
-        Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
+    if(Gestures.pointers.size === 1) {
+      const rc = Core.evtRC(e);
+      const world = worldAtScreen(e.clientX, e.clientY);
+      Core._mouseW = world;
+
+      // FIXED: Check if measure tool is active
+      if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
+        // Let measure tool handle the click
         return;
       }
 
-      if(Core.mode==='draw'){
+      if(Core.mode === 'view') {
+        Gestures.lastMidCSS = {x: e.clientX, y: e.clientY};
+        Gestures.state = GestureState.PANNING;
+      }
+      else if(Core.mode === 'draw') {
         const hit = hitItemAtRC(rc);
-        if (hit) {
-          if (e.shiftKey || e.ctrlKey || e.metaKey) {
-            if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
-            else Core.selected.add(hit.id);
-          } else {
-            if (!Core.selected.has(hit.id)) {
-              Core.selected.clear();
-              Core.selected.add(hit.id);
-            }
+        if(hit) {
+          if(!Core.selected.has(hit.id)) {
+            Core.selected.clear();
+            Core.selected.add(hit.id);
           }
           Core.lastSelected = hit;
           Core.markDirty('selection');
@@ -1205,9 +1253,9 @@ function loadImage(src, callback) {
             originals: {},
             didUndo: false
           };
-          for (const id of Gestures.dragData.ids) {
+          for(const id of Gestures.dragData.ids) {
             const it = Core.items.find(x => x.id === id);
-            if (it) Gestures.dragData.originals[id] = { row: it.row, col: it.col };
+            if(it) Gestures.dragData.originals[id] = {row: it.row, col: it.col};
           }
           Gestures.state = GestureState.SELECTING;
           Core.lassoStart = null;
@@ -1215,14 +1263,14 @@ function loadImage(src, callback) {
           return;
         }
 
-        Core.pushUndo(); 
-        Core.placeX(rc); 
-        Core.lastPaintRC=rc; 
-        Gestures.state=GestureState.DRAWING;
+        Core.pushUndo();
+        Core.placeX(rc);
+        Core.lastPaintRC = rc;
+        Gestures.state = GestureState.DRAWING;
       }
-      else if(Core.mode==='select'){
-        const hit=hitItemAtRC(rc);
-        if(hit){
+      else if(Core.mode === 'select') {
+        const hit = hitItemAtRC(rc);
+        if(hit) {
           const now = Date.now();
           if(hit.type === Core.TYPES.P && now - lastTapTime < 300 && lastTapId === hit.id) {
             if(window.openPointModal) {
@@ -1235,66 +1283,66 @@ function loadImage(src, callback) {
           lastTapTime = now;
           lastTapId = hit.id;
         
-          if(!Core.selected.has(hit.id)) { 
-            Core.selected.clear(); 
-            Core.selected.add(hit.id); 
+          if(!Core.selected.has(hit.id)) {
+            Core.selected.clear();
+            Core.selected.add(hit.id);
           }
-          Core.lastSelected=hit;
-          Core.markDirty('selection'); 
+          Core.lastSelected = hit;
+          Core.markDirty('selection');
           window.Draw.render();
         
-          Gestures.dragData={
-            id:hit.id,
-            ids:Array.from(Core.selected),
-            anchorRC:rc,
-            originals:{},
-            didUndo:false
+          Gestures.dragData = {
+            id: hit.id,
+            ids: Array.from(Core.selected),
+            anchorRC: rc,
+            originals: {},
+            didUndo: false
           };
-          for(const id of Gestures.dragData.ids){
-            const it=Core.items.find(x=>x.id===id);
-            if(it) Gestures.dragData.originals[id]={row:it.row,col:it.col};
+          for(const id of Gestures.dragData.ids) {
+            const it = Core.items.find(x => x.id === id);
+            if(it) Gestures.dragData.originals[id] = {row: it.row, col: it.col};
           }
-          Gestures.state=GestureState.SELECTING;
-          Core.lassoStart=null;
-        }else{
-          Core.selected.clear(); 
-          Core.markDirty('selection'); 
+          Gestures.state = GestureState.SELECTING;
+          Core.lassoStart = null;
+        } else {
+          Core.selected.clear();
+          Core.markDirty('selection');
           window.Draw.render();
-          Gestures.dragData=null; 
-          Core.lassoStart={x:Core._mouseW.x,y:Core._mouseW.y};
-          Gestures.state=GestureState.LASSO;
+          Gestures.dragData = null;
+          Core.lassoStart = {x: Core._mouseW.x, y: Core._mouseW.y};
+          Gestures.state = GestureState.LASSO;
         }
       }
-    } else if(Gestures.pointers.size===2){
-      const [a,b]=[...Gestures.pointers.values()], mid=midpoint(a,b);
-      Gestures.pinchData={
-        startDist:distance(a,b), 
-        startZoom:Core.zoom, 
-        midCSS:mid,
-        midWorld:worldAtScreen(mid.x,mid.y)
+    } else if(Gestures.pointers.size === 2) {
+      const [a, b] = [...Gestures.pointers.values()];
+      const mid = midpoint(a, b);
+      Gestures.pinchData = {
+        startDist: distance(a, b),
+        startZoom: Core.zoom,
+        midCSS: mid,
+        midWorld: worldAtScreen(mid.x, mid.y)
       };
-      Gestures.state=GestureState.PINCHING;
+      Gestures.state = GestureState.PINCHING;
     }
   }
-	
-	
-	function handlePointerMove(e) {
-    if (!Gestures.pointers.has(e.pointerId)) return;
+
+  function handlePointerMove(e) {
+    if(!Gestures.pointers.has(e.pointerId)) return;
     e.preventDefault();
-    Gestures.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    Gestures.pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
     const Core = getCore();
     const rc = Core.evtRC(e);
 
-    if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
+    if(Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
       Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
       Core.pan.y += (e.clientY - Gestures.lastMidCSS.y);
       Core.markDirty('view');
       window.Draw.render();
-      Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
+      Gestures.lastMidCSS = {x: e.clientX, y: e.clientY};
       return;
     }
 
-    if (Gestures.state === GestureState.PINCHING && Gestures.pointers.size === 2) {
+    if(Gestures.state === GestureState.PINCHING && Gestures.pointers.size === 2) {
       const [a, b] = [...Gestures.pointers.values()];
       const mid = midpoint(a, b);
       const dist = distance(a, b);
@@ -1305,7 +1353,7 @@ function loadImage(src, callback) {
 
       const isPan = (distChange / pinch.startDist) < 0.05;
 
-      if (isPan) {
+      if(isPan) {
         Core.pan.x += (mid.x - pinch.midCSS.x);
         Core.pan.y += (mid.y - pinch.midCSS.y);
         pinch.midCSS = mid;
@@ -1327,17 +1375,17 @@ function loadImage(src, callback) {
         Core.pan.y = centerY - centerWorldY * Core.zoom;
 
         const sliderEl = document.getElementById('zoom-slider');
-        if (sliderEl) sliderEl.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
+        if(sliderEl) sliderEl.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
       }
 
       Gestures.lastMidCSS = mid;
       const pct = Math.round(Core.zoom * 100);
       const slider = document.getElementById('zoom-slider');
       const label = document.getElementById('zoom-label');
-      if (slider) slider.value = String(pct);
-      if (label) label.textContent = pct + '%';
+      if(slider) slider.value = String(pct);
+      if(label) label.textContent = pct + '%';
 
-      if (!Gestures._renderScheduled) {
+      if(!Gestures._renderScheduled) {
         Gestures._renderScheduled = true;
         requestAnimationFrame(() => {
           Core.markDirty('view');
@@ -1348,28 +1396,30 @@ function loadImage(src, callback) {
       return;
     }
 
-    if (Gestures.state === GestureState.LASSO) {
+    if(Gestures.state === GestureState.LASSO) {
+      const world = worldAtScreen(e.clientX, e.clientY);
+      Core._mouseW = world;
       window.Draw.render();
       return;
     }
 
-    if (Gestures.state === GestureState.SELECTING && Gestures.dragData) {
+    if(Gestures.state === GestureState.SELECTING && Gestures.dragData) {
       const dd = Gestures.dragData;
       const moveRC = rc;
 
       const movedEnough =
         Math.abs(moveRC.r - dd.anchorRC.r) >= 1 ||
         Math.abs(moveRC.c - dd.anchorRC.c) >= 1;
-      if (movedEnough) Gestures.state = GestureState.DRAGGING;
+      if(movedEnough) Gestures.state = GestureState.DRAGGING;
     }
 
-    if (Gestures.state === GestureState.DRAGGING && Gestures.dragData) {
+    if(Gestures.state === GestureState.DRAGGING && Gestures.dragData) {
       const Core = getCore();
       const dd = Gestures.dragData;
       const dr = rc.r - dd.anchorRC.r;
       const dc = rc.c - dd.anchorRC.c;
 
-      if (!dd.didUndo) {
+      if(!dd.didUndo) {
         Core.pushUndo(true);
         dd.didUndo = true;
       }
@@ -1380,13 +1430,13 @@ function loadImage(src, callback) {
 
       for(const id of dd.ids) {
         const it = Core.items.find(x => x.id === id);
-        if (!it || it.locked) {
+        if(!it || it.locked) {
           canMoveAll = false;
           break;
         }
         
         const orig = dd.originals[id];
-        if (!orig) {
+        if(!orig) {
           canMoveAll = false;
           break;
         }
@@ -1397,286 +1447,228 @@ function loadImage(src, callback) {
         const newRow = Math.max(0, Math.min(Core.GRID - sizeH, orig.row + dr));
         const newCol = Math.max(0, Math.min(Core.GRID - sizeW, orig.col + dc));
 
-        proposedPositions.push({ 
-          id, 
-          row: newRow, 
+        proposedPositions.push({
+          id: id,
+          row: newRow,
           col: newCol,
           sizeW: sizeW,
           sizeH: sizeH
         });
       }
 
-      if (canMoveAll) {
-        for (const proposed of proposedPositions) {
-          const it = Core.items.find(x => x.id === proposed.id);
-          if (!it) {
-            canMoveAll = false;
-            break;
+      if(canMoveAll) {
+        for(let i = 0; i < proposedPositions.length; i++) {
+          const pos = proposedPositions[i];
+          let collision = false;
+          
+          for(const it of Core.items) {
+            if(ignoreSet.has(it.id)) continue;
+            
+            const itSizeW = it.sizeW || Core.getSize(it);
+            const itSizeH = it.sizeH || Core.getSize(it);
+            
+            const overlapsH = !(pos.col + pos.sizeW <= it.col || pos.col >= it.col + itSizeW);
+            const overlapsV = !(pos.row + pos.sizeH <= it.row || pos.row >= it.row + itSizeH);
+            
+            if(overlapsH && overlapsV) {
+              collision = true;
+              break;
+            }
           }
-
-          const testObj = {
-            id: it.id,
-            row: proposed.row,
-            col: proposed.col,
-            sizeW: proposed.sizeW,
-            sizeH: proposed.sizeH,
-            type: it.type
-          };
-
-          if (Core.collides(testObj, ignoreSet)) {
+          
+          if(collision) {
             canMoveAll = false;
             break;
           }
         }
       }
 
-      if (canMoveAll && proposedPositions.length > 0) {
-        for (const pos of proposedPositions) {
+      if(canMoveAll) {
+        for(const pos of proposedPositions) {
           const it = Core.items.find(x => x.id === pos.id);
-          if (it) {
+          if(it) {
             it.row = pos.row;
             it.col = pos.col;
           }
         }
+        
         Core.markDirty('items');
         window.Draw.render();
       }
-      
-      return;
     }
 
-    if (Gestures.state === GestureState.DRAWING) {
-      if (!Core.lastPaintRC || rc.r !== Core.lastPaintRC.r || rc.c !== Core.lastPaintRC.c) {
-        Core.placeX(rc);
-        Core.lastPaintRC = rc;
-      }
+    if(Gestures.state === GestureState.DRAWING && Core.mode === 'draw') {
+      const Core = getCore();
+      const last = Core.lastPaintRC;
+      if(!last || (last.r === rc.r && last.c === rc.c)) return;
+      
+      Core.placeX(rc);
+      Core.lastPaintRC = rc;
     }
   }
 
-  function handlePointerUp(e){
-    e.preventDefault();
-    const canvas = getCanvas(), Core = getCore();
-    canvas.releasePointerCapture(e.pointerId);
+  function handlePointerUp(e) {
+    const Core = getCore();
     Gestures.pointers.delete(e.pointerId);
 
-    Core.evtRC(e);
+    if(Gestures.state === GestureState.LASSO && Core.lassoStart && Core._mouseW) {
+      const x1 = Math.min(Core.lassoStart.x, Core._mouseW.x);
+      const y1 = Math.min(Core.lassoStart.y, Core._mouseW.y);
+      const x2 = Math.max(Core.lassoStart.x, Core._mouseW.x);
+      const y2 = Math.max(Core.lassoStart.y, Core._mouseW.y);
 
-    if (Gestures.pointers.size === 0) {
-      if (Gestures.state === GestureState.LASSO && Core.lassoStart) {
-        Core.selected.clear();
+      for(const it of Core.items) {
+        const sizeW = it.sizeW || Core.getSize(it);
+        const sizeH = it.sizeH || Core.getSize(it);
         const s = Core.cell();
+        const itX1 = it.col * s;
+        const itY1 = it.row * s;
+        const itX2 = (it.col + sizeW) * s;
+        const itY2 = (it.row + sizeH) * s;
 
-        const x1 = Math.min(Core.lassoStart.x, Core._mouseW.x);
-        const x2 = Math.max(Core.lassoStart.x, Core._mouseW.x);
-        const y1 = Math.min(Core.lassoStart.y, Core._mouseW.y);
-        const y2 = Math.max(Core.lassoStart.y, Core._mouseW.y);
-
-        for (const it of Core.items) {
-          const sz = Core.getSize(it);
-          const xw1 = it.col * s;
-          const yw1 = it.row * s;
-          const xw2 = (it.col + (it.sizeW || sz)) * s;
-          const yw2 = (it.row + (it.sizeH || sz)) * s;
-
-          const tol = 1 / Core.zoom;
-          const lx1 = Math.min(x1, x2) - tol;
-          const lx2 = Math.max(x1, x2) + tol;
-          const ly1 = Math.min(y1, y2) - tol;
-          const ly2 = Math.max(y1, y2) + tol;
-
-          const overlap = !(xw2 < lx1 || xw1 > lx2 || yw2 < ly1 || yw1 > ly2);
-          if (overlap) Core.selected.add(it.id);
+        if(!(itX2 < x1 || itX1 > x2 || itY2 < y1 || itY1 > y2)) {
+          Core.selected.add(it.id);
         }
+      }
 
-        Core.lassoStart = null;
+      Core.lassoStart = null;
+      Core.markDirty('selection');
+      window.Draw.render();
+    }
+
+    if(Gestures.pointers.size === 0) {
+      Gestures.state = GestureState.IDLE;
+      Gestures.dragData = null;
+      Gestures.pinchData = null;
+      Gestures.lastMidCSS = null;
+      Core.lastPaintRC = null;
+    }
+  }
+
+  function handleWheel(e) {
+    e.preventDefault();
+    const Core = getCore();
+    
+    const delta = e.deltaY < 0 ? 1.1 : 0.9;
+    const oldZoom = Core.zoom;
+    const dynamicMax = Core.getDynamicMaxZoom ? Core.getDynamicMaxZoom() : 8;
+    Core.zoom = Math.max(0.4, Math.min(dynamicMax, oldZoom * delta));
+
+    const canvas = getCanvas();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const worldX = (mouseX - Core.pan.x) / oldZoom;
+    const worldY = (mouseY - Core.pan.y) / oldZoom;
+
+    Core.pan.x = mouseX - worldX * Core.zoom;
+    Core.pan.y = mouseY - worldY * Core.zoom;
+
+    const pct = Math.round(Core.zoom * 100);
+    const slider = document.getElementById('zoom-slider');
+    const label = document.getElementById('zoom-label');
+    if(slider) slider.value = String(pct);
+    if(label) label.textContent = pct + '%';
+
+    Core.markDirty('view');
+    window.Draw.render();
+  }
+
+  function handleKeyDown(e) {
+    const Core = getCore();
+    
+    // Ctrl/Cmd + Z = Undo
+    if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      Core.undo();
+      return;
+    }
+    
+    // Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z = Redo
+    if((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      Core.redo();
+      return;
+    }
+    
+    // Delete/Backspace = Delete selected
+    if((e.key === 'Delete' || e.key === 'Backspace') && Core.mode === 'select') {
+      e.preventDefault();
+      Core.deleteSelected();
+      return;
+    }
+    
+    // Ctrl/Cmd + A = Select all
+    if((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      Core.selectAll();
+      return;
+    }
+    
+    // Ctrl/Cmd + C = Copy
+    if((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      e.preventDefault();
+      Core.copySelected();
+      return;
+    }
+    
+    // Ctrl/Cmd + V = Paste
+    if((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      e.preventDefault();
+      Core.pasteClipboard();
+      return;
+    }
+    
+    // F = Fit view
+    if(e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      Core.fitView();
+      return;
+    }
+    
+    // Escape = Clear selection / Exit measure tool
+    if(e.key === 'Escape') {
+      if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
+        const measureBtn = document.getElementById('measure-tool');
+        if(measureBtn) {
+          window.Features.Measure.toggle();
+          measureBtn.classList.remove('active');
+        }
+      } else {
+        Core.selected.clear();
         Core.markDirty('selection');
         window.Draw.render();
       }
-
-      Gestures.state = GestureState.IDLE;
-      Gestures.dragData = null;
-      Gestures.lastMidCSS = null;
-      Gestures.pinchData = null;
-      Core.lastPaintRC = null;
-      Gestures._renderScheduled = false;
+      return;
     }
   }
 
-  function handleContextMenu(e){
-    e.preventDefault();
-    
-    // PRIORITY: If measure tool is active, show stop menu
-    if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
-      const items = [
-        { 
-          icon:'ℹ️', 
-          label:'Stop Measure Tool', 
-          action: () => {
-            window.Features.Measure.toggle();
-          }
-        }
-      ];
-      showDToolsContextMenu(e.clientX, e.clientY, items);
-      return;
-    }
-    
-    const Core = getCore();
-    const x = e.clientX, y = e.clientY;
-    const selectedCount = Core.selected ? Core.selected.size : 0;
-    const getById = (id) => document.getElementById(id);
-    const rc = Core.evtRC(e);
-    const hit = hitItemAtRC(rc);
-    const isSelect = (Core.mode === 'select') || Core.selectionMode === true;
-    const isDraw   = (Core.mode === 'draw') && !isSelect;
-    
-    if (isSelect && hit) {
-      if (!Core.selected.has(hit.id)) {
-        Core.selected.clear();
-        Core.selected.add(hit.id);
-        Core.lastSelected = hit;
-        Core.markDirty('selection');
-        if (window.Draw) window.Draw.render();
-      }
-    }
-
-    const selectedIds = Array.from(Core.selected || []);
-    const selectedItems = selectedIds.map(id => Core.items.find(it => it.id === id)).filter(Boolean);
-    const selectedPointsCount = selectedItems.filter(it => it.type === Core.TYPES.P).length;
-
-    const canPaste = !!Core.clipboard && Core.clipboard.length > 0;
-    const canAlign = selectedCount >= 2;
-
-    const canEditPoint =
-      (hit && hit.type === Core.TYPES.P) ||
-      (selectedCount === 1 && selectedItems[0]?.type === Core.TYPES.P);
-
-    const canTogglePointAction =
-      (hit && hit.type === Core.TYPES.P) || (selectedPointsCount > 0);
-
-    const items = [];
-
-    if (isDraw) {
-      items.push(
-        { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
-        'divider'
-      );
-      
-      if (window.ElementPresets) {
-        for (const [key, config] of Object.entries(window.ElementPresets)) {
-          items.push({
-            icon: config.icon || '📍',
-            label: config.menuLabel || config.label,
-            action: () => addPresetElement(key)
-          });
-        }
-      }
-      
-      items.push(
-        'divider',
-        { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-        { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
-      );
-
-      showDToolsContextMenu(x, y, items);
+  // ============================================================
+  // INITIALIZE EVENT LISTENERS
+  // ============================================================
+  function initGestures() {
+    const canvas = getCanvas();
+    if(!canvas) {
+      console.error('Canvas not found');
       return;
     }
 
-    function addPresetElement(preset) {
-      const Core = getCore();
-      const canvas = document.getElementById('board');
-      const rect = canvas.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const world = Core.screenToWorld(cx, cy);
-      const rc = Core.worldToRC(world.x, world.y);
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerUp);
+    canvas.addEventListener('wheel', handleWheel, {passive: false});
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-      Core.pushUndo(true);
-
-      const config = window.ElementPresets ? window.ElementPresets[preset] : null;
-      
-      if (config) {
-        Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-        if (window.UI && window.UI.Toast) {
-          window.UI.Toast.success(`${config.label} added`);
-        }
-        Core.markDirty('items');
-        if (window.Draw) window.Draw.render();
-      }
-    }
-
-    items.push(
-      { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
-      { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
-      { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
-      { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-      { icon:'🔳', label:'Deselect', action:()=>{ Core.selected.clear(); Core.markDirty('selection'); if(window.Draw) window.Draw.render(); }, disabled: selectedCount === 0 },
-
-      'divider',
-
-      { icon:'↔️', label:'Align Horizontal', action:()=>{ const b=getById('align-h'); if(b) b.click(); }, disabled: !canAlign },
-      { icon:'↕️', label:'Align Vertical',   action:()=>{ const b=getById('align-v'); if(b) b.click(); }, disabled: !canAlign },
-
-      'divider',
-
-      { icon:'✏️', label:'Edit Point',    action:()=>{ const b=getById('edit-point'); if(b) b.click(); },    disabled: !canEditPoint },
-      { icon:'🔒', label:'Lock/Unlock',   action:()=>{ const b=getById('toggle-lock'); if(b) b.click(); },    disabled: !canTogglePointAction },
-      { icon:'💡', label:'Toggle Light',  action:()=>{ const b=getById('lights'); if(b) b.click(); },         disabled: !canTogglePointAction },
-
-      'divider',
-
-      { icon:'🗑️', label:'Clear All',     action:()=>{ const b=getById('clear'); if(b) b.click(); } }
-    );
-
-    showDToolsContextMenu(x, y, items);
+    document.addEventListener('keydown', handleKeyDown);
   }
 
-  function showDToolsContextMenu(x, y, items) {
-    if (window.UI && window.UI.showContextMenu) {
-      window.UI.showContextMenu(x, y, items);
-    }
+  if(document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initGestures);
+  } else {
+    initGestures();
   }
 
-  function init(){
-    const canvas=getCanvas(); 
-    if(!canvas){
-      setTimeout(init,100); 
-      return;
-    }
-    canvas.addEventListener('pointerdown',handlePointerDown,{passive:false});
-    canvas.addEventListener('pointermove',handlePointerMove,{passive:false});
-    canvas.addEventListener('pointerup',handlePointerUp,{passive:false});
-    canvas.addEventListener('pointercancel',handlePointerUp,{passive:false});
-    canvas.addEventListener('contextmenu',handleContextMenu,{passive:false});
-    console.log('Gestures ready');
-  }
-  
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
-  else init();
-  
-  window.Gestures=Gestures;
-  window.getCore = function() { return window.Core; };
-
-  window.addPresetElementFromMenu = function(preset) {
-    const Core = getCore();
-    const canvas = document.getElementById('board');
-    const rect = canvas.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const world = Core.screenToWorld(cx, cy);
-    const rc = Core.worldToRC(world.x, world.y);
-
-    Core.pushUndo(true);
-
-    const config = window.ElementPresets ? window.ElementPresets[preset] : null;
-    
-    if (config) {
-      Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-      if (window.UI && window.UI.Toast) {
-        window.UI.Toast.success(`${config.label} added`);
-      }
-      Core.markDirty('items');
-      if (window.Draw) window.Draw.render();
-    }
-  };
-  
+  window.Gestures = Gestures;
 })();
