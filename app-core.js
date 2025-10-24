@@ -1,5 +1,5 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v3
+// CORE ENGINE - MapPlanner v4
 // Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
 // PATCHED: Right-click context menu improvements
 // ============================================================
@@ -262,11 +262,11 @@
     const footer = document.querySelector('footer');
     const topH = top ? top.getBoundingClientRect().height : 0;
     const footH = footer ? footer.getBoundingClientRect().height : 0;
-    const pad = 32;
-    const availW = window.innerWidth - 2 * pad;
-    const availH = window.innerHeight - topH - footH - 2 * pad - 80;
-    const w = Math.min(availW, availH);
-    Core.basePx = Math.max(320, Math.floor(w));
+	const pad = 10;
+	const availW = window.innerWidth - 2 * pad;
+	const availH = window.innerHeight - topH - footH - pad - 20;
+	const w = Math.min(availW, availH);
+	Core.basePx = Math.max(320, Math.floor(w));
     
     Core.canvas.width = Math.round(Core.basePx * Core.dpr);
     Core.canvas.height = Math.round(Core.basePx * Core.dpr);
@@ -800,7 +800,11 @@ function loadImage(src, callback) {
   }
   
   const img = new Image();
-  // NO crossOrigin line here
+  
+  // Enable CORS for images from same origin (GitHub Pages)
+  if(window.location.protocol !== 'file:') {
+    img.crossOrigin = 'anonymous';
+  }
   
   img.onload = () => {
     renderCache.imageCache[src] = img;
