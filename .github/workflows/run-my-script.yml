@@ -1,0 +1,19 @@
+name: Run My Script
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run_script_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Give script execution permissions
+        run: chmod +x myscript.sh
+
+      - name: Run my shell script
+        run: ./myscript.sh
