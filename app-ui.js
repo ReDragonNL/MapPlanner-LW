@@ -517,8 +517,7 @@
       legendToggleBtn.addEventListener('click', () => {
         const legend = $('legend');
         if (legend) {
-          const isVisible = legend.style.display !== 'none';
-          legend.style.display = isVisible ? 'none' : 'block';
+          legend.classList.toggle('show');
         }
       });
     }
@@ -539,8 +538,7 @@
       dtoolsToggleBtn.addEventListener('click', () => {
         const menu = $('dtools');
         if (menu) {
-          const isVisible = menu.style.display !== 'none';
-          menu.style.display = isVisible ? 'none' : 'block';
+          menu.classList.toggle('open');
         }
       });
     }
@@ -550,8 +548,7 @@
       menuToggleBtn.addEventListener('click', () => {
         const menu = $('menu');
         if (menu) {
-          const isVisible = menu.style.display !== 'none';
-          menu.style.display = isVisible ? 'none' : 'block';
+          menu.classList.toggle('open');
         }
       });
     }
@@ -984,7 +981,7 @@
     if (pointsList && dropdown) {
       pointsList.addEventListener('click', (e) => {
         e.stopPropagation();
-        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+        dropdown.classList.toggle('overlay-open');
       });
       
       dropdown.addEventListener('click', (e) => {
@@ -994,12 +991,12 @@
           if (window.addPresetElementFromMenu) {
             window.addPresetElementFromMenu(preset);
           }
-          dropdown.style.display = 'none';
+          dropdown.classList.remove('overlay-open');
         }
       });
       
       document.addEventListener('click', () => {
-        dropdown.style.display = 'none';
+        dropdown.classList.remove('overlay-open');
       });
     }
   }
