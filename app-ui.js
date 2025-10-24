@@ -385,6 +385,56 @@
     }
   };
 
+
+  // ============================================================
+  // ADD PRESET ELEMENT FROM MENU
+  // ============================================================
+  window.addPresetElementFromMenu = function(presetKey) {
+    const Core = getCore();
+    
+    if(!window.ElementPresets || !window.ElementPresets[presetKey]) {
+      UI.Toast.error(`Preset "${presetKey}" not found`);
+      return;
+    }
+    
+    const preset = window.ElementPresets[presetKey];
+    
+    Core.pushUndo(true);
+    
+    // Find center of viewport
+    const canvas = $('board');
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const world = Core.screenToWorld(cx, cy);
+    const rc = Core.worldToRC(world.x, world.y);
+    
+    // Place the element
+    const item = Core.place('P', Math.round(rc.r), Math.round(rc.c), {
+      sizeW: preset.sizeW || 6,
+      sizeH: preset.sizeH || 6,
+      label: preset.label || presetKey,
+      color: preset.color || '#ff66ff',
+      image: preset.image || null,
+      area: preset.area || 0,
+      fillAlpha: preset.fillAlpha || 100,
+      borderAlpha: preset.borderAlpha || 100,
+      borderWidth: preset.borderWidth || 1,
+      borderColor: preset.borderColor || '#000000',
+      areaAlpha: preset.areaAlpha || 30,
+      areaColor: preset.areaColor || preset.color || '#ff66ff',
+      areaBorderAlpha: preset.areaBorderAlpha || 100,
+      areaBorderWidth: preset.areaBorderWidth || 2,
+      areaBorderColor: preset.areaBorderColor || preset.color || '#ff66ff',
+      glow: preset.glow !== false
+    });
+    
+    if(item) {
+      UI.Toast.success(`Added ${preset.label || presetKey}`);
+    }
+  };
+  
+
   // ============================================================
   // BUTTON INITIALIZATION
   // ============================================================
@@ -1001,6 +1051,26 @@
     }
   }
 
+
+  // FIXED: Auto-hide menus when clicking outside
+  document.addEventListener('click', (e) => {
+    // Don't hide if clicking menu buttons
+    if(e.target.closest('#dtools-toggle') || e.target.closest('#menu-toggle')) {
+      return;
+    }
+    
+    // Don't hide if clicking inside menus
+    if(e.target.closest('#dtools') || e.target.closest('#menu')) {
+      return;
+    }
+    
+    // Hide all menus
+    const dtools = $('dtools');
+    const menu = $('menu');
+    if(dtools) dtools.classList.remove('open');
+    if(menu) menu.classList.remove('open');
+  });
+  
   // ============================================================
   // KEYBOARD SHORTCUTS
   // ============================================================
