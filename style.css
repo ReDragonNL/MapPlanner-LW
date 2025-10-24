@@ -23,33 +23,31 @@
 }
 
 html, body {
-  height: 100vh;
-  height: 100dvh; /* Dynamic viewport for mobile - adjusts for browser UI */
+  min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 /* ============================================================ */
 /* LAYOUT */
 /* ============================================================ */
 .layout {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  padding: 0;
-  overflow: hidden;
+  padding: 0 12px 20px;
 }
 
 #board {
   display: block;
-  margin: 0 auto;
+  margin: 20px auto;
   background: #2a2f45;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -688,17 +686,6 @@ footer {
   position: relative;
   z-index: 10;
   width: 100%;
-  min-height: 36px;
-}
-
-/* Mobile footer improvements */
-@media (max-width: 768px) {
-  footer {
-    height: 48px;
-    line-height: 48px;
-    min-height: 48px;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
 }
 
 /* ============================================================ */
@@ -1035,29 +1022,4 @@ button {
 
 input {
   font-family: inherit;
-}
-
-/* ============================================================ */
-/* TOAST ANIMATIONS */
-/* ============================================================ */
-@keyframes slideIn {
-  from {
-    transform: translateX(400px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes slideOut {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(400px);
-    opacity: 0;
-  }
 }
