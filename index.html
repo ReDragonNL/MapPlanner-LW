@@ -465,13 +465,16 @@
           if(!window.Features) return;
           
           // Measure tool
-          const measureBtn = document.getElementById('measure-tool');
-          if(measureBtn) {
-            measureBtn.addEventListener('click', () => {
-              window.Features.Measure.toggle();
-              measureBtn.classList.toggle('active');
-            });
-          }
+const measureBtn = document.getElementById('measure-tool');
+if (measureBtn) {
+  measureBtn.addEventListener('click', () => {
+    window.Features.Measure.toggle();
+    measureBtn.classList.toggle('active');
+    // Auto-hide any open panels after choosing the tool
+    if (typeof window.autoClose === 'function') window.autoClose();
+  });
+}
+
           
           // Auto-save toggle
           const autosaveBtn = document.getElementById('autosave-toggle');
