@@ -42,12 +42,14 @@ html, body {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  padding: 0 12px 20px;
+  /* Reduced side and bottom padding to maximize available space */
+  padding: 0 6px 10px;
 }
 
 #board {
   display: block;
-  margin: 20px auto;
+  /* Remove horizontal auto margin so the board hugs the container edges */
+  margin: 10px 0;
   background: #2a2f45;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -675,10 +677,7 @@ html, body {
 /* FOOTER */
 /* ============================================================ */
 footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
+  flex-shrink: 0;
   height: 36px;
   background: var(--panel);
   border-top: 1px solid #2a315d;
@@ -686,9 +685,10 @@ footer {
   font-size: 12px;
   color: #888;
   line-height: 36px;
-  z-index: 9999;  /* keep high so it's above overlays */
+  position: relative;
+  z-index: 10;
+  width: 100%;
 }
-
 
 /* ============================================================ */
 /* LIGHT THEME STYLES */
@@ -804,12 +804,23 @@ body.light-theme kbd {
 /* MOBILE RESPONSIVE */
 /* ============================================================ */
 @media (max-width: 768px) {
+  /* On small screens, compress the top bar padding and place all
+   * control buttons in a single row where possible. */
   .topbar {
-    padding: 0 8px;
+    padding: 0 4px;
+    /* Lay out children horizontally rather than stacking them */
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
   }
   
   .topbar .buttons {
+    flex-wrap: wrap;
     gap: 6px;
+    justify-content: center;
+    align-items: center;
   }
   
   .topbar button {
@@ -817,9 +828,23 @@ body.light-theme kbd {
     font-size: 13px;
   }
   
+  /* Place the zoom slider and mode buttons on a single row */
   .zoomrow {
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  #zoom-slider {
+    /* Allow slider to grow and shrink based on available space */
+    width: auto;
+    flex: 1 1 120px;
+    max-width: 200px;
+  }
+  /* Position the mode row directly after the slider */
+  .zoomrow .mode-row {
+    margin-left: 8px;
   }
   
   #zoom-slider {
