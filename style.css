@@ -39,16 +39,19 @@ html, body {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* Align children to the start so the board hugs the left edge instead of centering */
+  align-items: flex-start;
   justify-content: flex-start;
   width: 100%;
-  /* Reduced side and bottom padding to maximize available space */
+  /* Reduce side padding and bottom padding to maximize workspace */
   padding: 0 6px 10px;
+  /* Reserve space for the footer so it doesn’t overlap the board */
+  padding-bottom: calc(10px + 36px);
 }
 
 #board {
   display: block;
-  /* Remove horizontal auto margin so the board hugs the container edges */
+  /* Remove horizontal centering margin so the board aligns with the layout padding */
   margin: 10px 0;
   background: #2a2f45;
   border-radius: 8px;
@@ -68,7 +71,8 @@ html, body {
   margin-bottom: 12px;
   z-index: 30;
   width: 100%;
-  max-width: 900px;
+  /* Allow the top bar to take up the full width of the viewport */
+  max-width: none;
 }
 
 .topbar .buttons {
@@ -685,8 +689,11 @@ footer {
   font-size: 12px;
   color: #888;
   line-height: 36px;
-  position: relative;
-  z-index: 10;
+  /* Fix the footer to the bottom of the viewport and ensure it stays above other UI layers */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  z-index: 5000;
   width: 100%;
 }
 
@@ -804,11 +811,9 @@ body.light-theme kbd {
 /* MOBILE RESPONSIVE */
 /* ============================================================ */
 @media (max-width: 768px) {
-  /* On small screens, compress the top bar padding and place all
-   * control buttons in a single row where possible. */
   .topbar {
+    /* On small screens, lay out children horizontally instead of stacking */
     padding: 0 4px;
-    /* Lay out children horizontally rather than stacking them */
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: center;
@@ -842,13 +847,8 @@ body.light-theme kbd {
     flex: 1 1 120px;
     max-width: 200px;
   }
-  /* Position the mode row directly after the slider */
   .zoomrow .mode-row {
     margin-left: 8px;
-  }
-  
-  #zoom-slider {
-    width: 140px;
   }
   
   .menu {
@@ -877,7 +877,9 @@ body.light-theme kbd {
   }
   
   #zoom-slider {
-    width: 120px;
+    width: auto;
+    flex: 1 1 100px;
+    max-width: 160px;
   }
   
   .menu {
