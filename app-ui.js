@@ -23,10 +23,9 @@
     container: null,
     
     init() {
-      if (this.container) return;
+      if(this.container) return;
       this.container = document.createElement('div');
       this.container.id = 'toast-container';
-      // Default positioning: top right for desktop
       this.container.style.cssText = `
         position: fixed;
         top: 80px;
@@ -37,23 +36,6 @@
         gap: 10px;
         pointer-events: none;
       `;
-      // On small screens (mobile), reposition to bottom so that toasts do not
-      // obscure the top toolbar. Use safe-area inset when available.
-      try {
-        const vw = Math.min(window.innerWidth, window.innerHeight);
-        if (vw < 768) {
-          // Clear any top positioning
-          this.container.style.top = '';
-          // Place above the footer (approx 70px height) and account for safe area
-          const safeBottom = (typeof window !== 'undefined' && window.CSS && window.CSS.supports && window.CSS.supports('padding: env(safe-area-inset-bottom)'))
-            ? `calc(70px + env(safe-area-inset-bottom))`
-            : '70px';
-          this.container.style.bottom = safeBottom;
-          this.container.style.right = '20px';
-        }
-      } catch (err) {
-        // If any error occurs (e.g. window is undefined during SSR), ignore
-      }
       document.body.appendChild(this.container);
     },
     
@@ -259,21 +241,12 @@
     document.body.appendChild(contextMenu);
     
     const rect = contextMenu.getBoundingClientRect();
-    // Adjust position if the menu would overflow the viewport. Clamp to 0 to
-    // prevent it from leaving the visible area on mobile devices.
-    let newLeft = x;
-    let newTop = y;
-    if (rect.right > window.innerWidth) {
-      newLeft = x - rect.width;
+    if(rect.right > window.innerWidth) {
+      contextMenu.style.left = (x - rect.width) + 'px';
     }
-    if (rect.bottom > window.innerHeight) {
-      newTop = y - rect.height;
+    if(rect.bottom > window.innerHeight) {
+      contextMenu.style.top = (y - rect.height) + 'px';
     }
-    // Ensure the menu stays within the viewport bounds
-    if (newLeft < 0) newLeft = 0;
-    if (newTop < 0) newTop = 0;
-    contextMenu.style.left = newLeft + 'px';
-    contextMenu.style.top = newTop + 'px';
   }
   
   function hideContextMenu() {
@@ -573,8 +546,19 @@ document.addEventListener('keydown', (e) => {
       for (const id of Core.selected) {
         const it = Core.items.find(x => x.id === id);
         if (!it) continue;
+        // For X and Y blocks, change the block color.
         if (it.type === Core.TYPES.X || it.type === Core.TYPES.Y) {
           it.color = color;
+          count++;
+          continue;
+        }
+        // For points (including custom presets like mountain), apply the color
+        // to both the primary and area colors so the fill updates. Without
+        // updating areaColor the change would not be visible because fill
+        // rectangles use areaColor first.
+        if (it.type === Core.TYPES.P) {
+          it.color = color;
+          it.areaColor = color;
           count++;
         }
       }
