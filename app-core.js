@@ -1283,14 +1283,15 @@ function loadImage(src, callback) {
     const Core = getCore();
     const rc = Core.evtRC(e);
 
-		// --- Measure tool live preview (works with pointer events) ---
+// --- Measure tool live preview (two-click flow) ---
 const M = window.Features && window.Features.Measure;
 if (M && M.enabled && M.firstWorld) {
-  // Track current pointer position in WORLD coords so Draw.drawMeasureLine() can render
+  // Update the current end of the line as the pointer moves
   M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
   Core.markDirty('view');
-  window.Draw.renderImmediate(); // immediate so the dashed line feels responsive
+  window.Draw.renderImmediate(); // make the dashed line feel snappy
 }
+
 
 
     if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
