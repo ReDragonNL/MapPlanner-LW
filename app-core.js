@@ -1283,6 +1283,16 @@ function loadImage(src, callback) {
     const Core = getCore();
     const rc = Core.evtRC(e);
 
+		// --- Measure tool live preview (works with pointer events) ---
+const M = window.Features && window.Features.Measure;
+if (M && M.enabled && M.firstWorld) {
+  // Track current pointer position in WORLD coords so Draw.drawMeasureLine() can render
+  M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
+  Core.markDirty('view');
+  window.Draw.renderImmediate(); // immediate so the dashed line feels responsive
+}
+
+
     if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
       Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
       Core.pan.y += (e.clientY - Gestures.lastMidCSS.y);
