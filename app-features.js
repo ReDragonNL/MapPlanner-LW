@@ -111,7 +111,7 @@
         }
       };
       
-      canvas.addEventListener('mousemove', this.mouseMoveHandler);
+      canvas.addEventListener('pointermove', this.mouseMoveHandler, { passive: false });
       canvas.addEventListener('click', this.clickHandler);
     },
     
