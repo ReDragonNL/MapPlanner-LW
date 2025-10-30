@@ -1,7 +1,6 @@
 // ============================================================
-// CORE ENGINE - MapPlanner v4
-// Complete with: Mobile zoom/pan fixes + Rectangular area + Auto-menus
-// PATCHED: Right-click context menu improvements
+// CORE ENGINE - MapPlanner
+// Main application state, grid management, and core functions
 // ============================================================
 
 (function(){
@@ -39,7 +38,7 @@
   Core.clipboard = [];
   Core.legendLabels = {};
   Core.lastPaintRC = null;
-  Core.mode = 'draw';
+  Core.mode = 'draw'; // modes: draw | select | view
 
   // ============================================================
   // DIRTY FLAGS FOR RENDER OPTIMIZATION
@@ -262,11 +261,11 @@
     const footer = document.querySelector('footer');
     const topH = top ? top.getBoundingClientRect().height : 0;
     const footH = footer ? footer.getBoundingClientRect().height : 0;
-	const pad = 10;
-	const availW = window.innerWidth - 2 * pad;
-	const availH = window.innerHeight - topH - footH - pad - 20;
-	const w = Math.min(availW, availH);
-	Core.basePx = Math.max(320, Math.floor(w));
+    const pad = 32;
+    const availW = window.innerWidth - 2 * pad;
+    const availH = window.innerHeight - topH - footH - 2 * pad - 80;
+    const w = Math.min(availW, availH);
+    Core.basePx = Math.max(320, Math.floor(w));
     
     Core.canvas.width = Math.round(Core.basePx * Core.dpr);
     Core.canvas.height = Math.round(Core.basePx * Core.dpr);
@@ -447,7 +446,7 @@
     if(window.Draw) window.Draw.render();
     return obj.id;
   };
-  
+
   // ============================================================
   // HIT DETECTION
   // ============================================================
@@ -466,7 +465,7 @@
   };
 
   // ============================================================
-  // GRID SIZE MANAGEMENT
+  // GRID SIZE MANAGEMENT (FIXED)
   // ============================================================
   Core.setGridSize = function(n, opts) {
     const newGrid = Math.max(20, Math.min(2000, n | 0));
@@ -492,7 +491,7 @@
     Core.resizeCanvas();
     Core.fitView();
   };
-  
+
   // ============================================================
   // VIEW MANAGEMENT
   // ============================================================
@@ -562,6 +561,9 @@
     if(window.Draw) window.Draw.render();
   };
 
+  // ============================================================
+  // PAN CLAMPING (KEEP VIEW INSIDE VISIBLE AREA)
+  // ============================================================
   Core.clampPan = function () {
     const s = Core.cell();
     const worldW = Core.GRID * s * Core.zoom;
@@ -608,6 +610,9 @@
     if(window.Draw) window.Draw.render();
   };
 
+  // ============================================================
+  // SAFE ITEM MOVEMENT
+  // ============================================================
   Core.moveItemSafe = function(it, newRow, newCol) {
     const oldR = it.row, oldC = it.col;
     it.row = newRow;
@@ -624,6 +629,9 @@
     return true;
   };
 
+  // ============================================================
+  // FIND NEAREST FREE CELL
+  // ============================================================
   Core.nearestFreeCell = function(row, col, visibleOnly, itemWidth = 1, itemHeight = 1) {
     const maxRadius = Core.GRID;
     const s = Core.cell();
@@ -674,8 +682,14 @@
     return null;
   };
 
+  // ============================================================
+  // EXPORT TO GLOBAL SCOPE
+  // ============================================================
   window.Core = Core;
 
+  // ============================================================
+  // GLOBAL ZOOM FUNCTION
+  // ============================================================
   window.setZoomPct = function(pct, anchor) {
     const Core = window.Core;
     if (!Core || !Core.canvas) return;
@@ -739,6 +753,9 @@ function hexToRgba(hex, alpha) {
     return window.Core;
   }
 
+  // ============================================================
+  // GRID DRAWING
+  // ============================================================
   function drawGrid() {
     const Core = getCore();
     const {ctx, cell, GRID} = Core;
@@ -752,14 +769,9 @@ function hexToRgba(hex, alpha) {
       renderCache.needsFullRedraw = true;
     }
 
-    // Calculate grid world size
-    const gridWorldSize = GRID * s;
-
-    // Draw background
     ctx.fillStyle = '#2a2f45';
-    ctx.fillRect(0, 0, gridWorldSize, gridWorldSize);
+    ctx.fillRect(0, 0, Core.basePx, Core.basePx);
 
-    // Draw grid lines
     ctx.strokeStyle = '#404a78';
     ctx.lineWidth = 1 / Core.zoom;
 
@@ -774,57 +786,58 @@ function hexToRgba(hex, alpha) {
     const endCol = Math.min(GRID, Math.ceil(viewX2 / s));
 
     ctx.beginPath();
-    // Horizontal lines
     for(let i = startRow; i <= endRow; i++) {
       const p = i * s;
       ctx.moveTo(0, p);
-      ctx.lineTo(gridWorldSize, p);
+      ctx.lineTo(Core.basePx, p);
     }
-    // Vertical lines
     for(let i = startCol; i <= endCol; i++) {
       const p = i * s;
       ctx.moveTo(p, 0);
-      ctx.lineTo(p, gridWorldSize);
+      ctx.lineTo(p, Core.basePx);
     }
     ctx.stroke();
   }
 
-function loadImage(src, callback) {
-  if(!src) return null;
-  
-  if(renderCache.imageCache[src]) {
-    const img = renderCache.imageCache[src];
-    if(img.complete && img.naturalWidth > 0) {
-      return img;
+ // ============================================================
+  // IMAGE LOADING (IMPROVED)
+  // ============================================================
+  function loadImage(src, callback) {
+    if(!src) return null;
+    
+    // Return cached image if available and loaded
+    if(renderCache.imageCache[src]) {
+      const img = renderCache.imageCache[src];
+      if(img.complete && img.naturalWidth > 0) {
+        return img;
+      }
     }
-  }
-  
-  const img = new Image();
-  
-  // Enable CORS for images from same origin (GitHub Pages)
-  if(window.location.protocol !== 'file:') {
-    img.crossOrigin = 'anonymous';
-  }
-  
-  img.onload = () => {
+    
+    const img = new Image();
+    
+    img.onload = () => {
+      renderCache.imageCache[src] = img;
+      console.log('Image loaded:', src);
+      // Trigger re-render when image loads
+      if(window.Draw && window.Draw.render) {
+        window.Draw.render();
+      }
+      if(callback) callback();
+    };
+    
+    img.onerror = () => {
+      console.warn('Failed to load image:', src);
+      delete renderCache.imageCache[src];
+    };
+    
+    img.src = src;
     renderCache.imageCache[src] = img;
-    console.log('Image loaded:', src);
-    if(window.Draw && window.Draw.render) {
-      window.Draw.render();
-    }
-    if(callback) callback();
-  };
-  
-  img.onerror = () => {
-    console.warn('Failed to load image:', src);
-    delete renderCache.imageCache[src];
-  };
-  
-  img.src = src;
-  renderCache.imageCache[src] = img;
-  return img;
-}
+    return img;
+  }
 
+  // ============================================================
+  // ITEM DRAWING
+  // ============================================================
   function drawItems() {
     const Core = getCore();
     const {ctx, cell, SIZE, TYPES, FILL, BORDER, BORDER_SEL} = Core;
@@ -841,6 +854,7 @@ function loadImage(src, callback) {
       blocks: []
     };
 
+    // Sort items into layers
     for(const it of Core.items) {
       const sz = Core.getSize(it);
       const x = it.col * s;
@@ -862,6 +876,7 @@ function loadImage(src, callback) {
       }
     }
 
+    // Draw area glows
     for(const it of layers.areas) {
       const sizeW = it.sizeW || Core.getSize(it);
       const sizeH = it.sizeH || Core.getSize(it);
@@ -886,6 +901,7 @@ function loadImage(src, callback) {
       ctx.strokeRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
     }
 
+    // Draw ambient lights (Y blocks)
     for(const it of layers.ambients) {
       const sz = Core.getSize(it);
       const half = Math.floor(sz / 2);
@@ -909,6 +925,7 @@ function loadImage(src, callback) {
       ctx.strokeRect(xx, yy, ww, hh);
     }
 
+    // Draw blocks
     for(const it of layers.blocks) {
       const sz = Core.getSize(it);
       const w = (it.sizeW || sz) * s;
@@ -953,6 +970,7 @@ function loadImage(src, callback) {
         ctx.fillRect(x, y, w, h);
       }
 
+      // Draw image if exists
       if (it.image) {
         const img = loadImage(it.image);
         if (img) {
@@ -978,6 +996,7 @@ function loadImage(src, callback) {
       ctx.strokeStyle = isSelected ? BORDER_SEL : BORDER;
       ctx.strokeRect(x, y, w, h);
 
+      // Draw labels
       if(Core.zoom > 0.3) {
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
@@ -999,6 +1018,9 @@ function loadImage(src, callback) {
     }
   }
 
+  // ============================================================
+  // LASSO SELECTION DRAWING
+  // ============================================================
   function drawLasso() {
     const Core = getCore();
     const {ctx, selectionMode, lassoStart, _mouseW} = Core;
@@ -1015,13 +1037,16 @@ function loadImage(src, callback) {
     }
   }
 
-  function drawMeasureLine() {
-    const Core = getCore();
-    if(window.Features && window.Features.Measure) {
-      window.Features.Measure.draw(Core.ctx);
-    }
-  }
-
+	function drawMeasureLine() {
+	  const Core = getCore();
+	  if(window.Features && window.Features.Measure) {
+		window.Features.Measure.draw(Core.ctx);
+	  }
+	}
+	
+  // ============================================================
+  // RENDER REQUEST (THROTTLED)
+  // ============================================================
   function requestRender() {
     if(renderRequested) return;
     
@@ -1036,6 +1061,9 @@ function loadImage(src, callback) {
     });
   }
 
+  // ============================================================
+  // IMMEDIATE RENDER
+  // ============================================================
   function renderNow() {
     const Core = getCore();
     if(!Core || !Core.ctx) return;
@@ -1050,7 +1078,8 @@ function loadImage(src, callback) {
     drawGrid();
     drawItems();
     drawLasso();
-    drawMeasureLine();
+    drawMeasureLine(); 
+
 
     const zoomPct = Math.round(Core.zoom * 100);
     const zoomLabel = Core.$('zoom-label');
@@ -1088,7 +1117,7 @@ function loadImage(src, callback) {
 })();
 
 // ============================================================
-// GESTURES - Input Handler (FIXED: Mobile zoom/pan)
+// GESTURES - Input Handler
 // ============================================================
 (function(){
   const GestureState = {
@@ -1111,6 +1140,9 @@ function loadImage(src, callback) {
     _renderScheduled: false
   };
 
+  // ============================================================
+  // DOUBLE-TAP DETECTION FOR MOBILE (FIXED)
+  // ============================================================
   let lastTapTime = 0;
   let lastTapId = null;
 
@@ -1137,6 +1169,12 @@ function loadImage(src, callback) {
     };
   }
   
+  function keepWorldPointUnderScreen(worldPt,xCSS,yCSS){
+    const Core=getCore();
+    Core.pan.x=xCSS - worldPt.x*Core.zoom;
+    Core.pan.y=yCSS - worldPt.y*Core.zoom;
+  }
+  
   function hitItemAtRC(rc){
     const Core=getCore(), rr=rc.r, cc=rc.c;
     for(let i=Core.items.length-1;i>=0;--i){
@@ -1146,153 +1184,202 @@ function loadImage(src, callback) {
     return null;
   }
 
-  function handlePointerDown(e){
-    if(e.pointerType==='mouse' && e.button===0 && e.width===0 && e.height===0) return;
+// ============================================================
+// POINTER DOWN HANDLER (FIXED FOR SELECT MODE + DRAW PICK&DRAG)
+// ============================================================
+function handlePointerDown(e){
+  if(e.pointerType==='mouse' && e.button===0 && e.width===0 && e.height===0) return;
 
-    if(e.button === 2) {
-      return;
+  // FIXED: Ignore right-click for drawing - it's handled by contextmenu event
+  if(e.button === 2) {
+    return;
+  }
+
+  e.preventDefault();
+  const canvas=getCanvas(), Core=getCore();
+  canvas.setPointerCapture(e.pointerId);
+  Gestures.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
+  // Middle/assigned pan button: start panning immediately
+  if(e.button===Gestures.panButton){
+    Gestures.state=GestureState.PANNING;
+    Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
+    return;
+  }
+  
+  if(Gestures.pointers.size===1){
+    const rc=Core.evtRC(e);
+    
+    // Check for measure tool
+    if(window.Features && window.Features.Measure && window.Features.Measure.active) {
+      if(window.Features.Measure.handleClick(rc, e.clientX, e.clientY)) {
+        return;
+      }
     }
 
-    e.preventDefault();
-    const canvas=getCanvas(), Core=getCore();
-    canvas.setPointerCapture(e.pointerId);
-    Gestures.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-
-    if(e.button===Gestures.panButton){
+    // FIXED: In View mode, allow 1-finger pan
+    if(Core.mode==='view'){
       Gestures.state=GestureState.PANNING;
       Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
       return;
     }
-  
-    if(Gestures.pointers.size===1){
-      const rc=Core.evtRC(e);
-    
-      if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
-        if(window.Features.Measure.handleClick) {
-          window.Features.Measure.handleClick(rc, e.clientX, e.clientY);
-          return;
-        }
-      }
 
-      if(Core.mode==='view'){
-        Gestures.state=GestureState.PANNING;
-        Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
+    if(Core.mode==='draw'){
+      // NEW: In draw mode, allow selecting and dragging if clicking inside an item (no lasso)
+      const hit = hitItemAtRC(rc);
+      if (hit) {
+        // Selection update: modifiers toggle-add, otherwise single-pick
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
+          else Core.selected.add(hit.id);
+        } else {
+          if (!Core.selected.has(hit.id)) {
+            Core.selected.clear();
+            Core.selected.add(hit.id);
+          }
+        }
+        Core.lastSelected = hit;
+        Core.markDirty('selection');
+        window.Draw.render();
+
+        // Prepare drag (same as Select mode)
+        Gestures.dragData = {
+          id: hit.id,
+          ids: Array.from(Core.selected),
+          anchorRC: rc,
+          originals: {},
+          didUndo: false
+        };
+        for (const id of Gestures.dragData.ids) {
+          const it = Core.items.find(x => x.id === id);
+          if (it) Gestures.dragData.originals[id] = { row: it.row, col: it.col };
+        }
+        Gestures.state = GestureState.SELECTING;
+        Core.lassoStart = null; // no lasso in draw mode
+
+        // IMPORTANT: do not start painting if we grabbed an item
         return;
       }
 
-      if(Core.mode==='draw'){
-        const hit = hitItemAtRC(rc);
-        if (hit) {
-          if (e.shiftKey || e.ctrlKey || e.metaKey) {
-            if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
-            else Core.selected.add(hit.id);
-          } else {
-            if (!Core.selected.has(hit.id)) {
-              Core.selected.clear();
-              Core.selected.add(hit.id);
-            }
+      // No hit -> proceed with normal draw behavior
+      // On touch devices we may be initiating a two‑finger pan. A second pointer
+      // arriving shortly after this one should not leave behind an extra X.
+      // Place the X immediately for mouse and single‑touch; removal on second
+      // touch is handled in the multi‑pointer branch below.
+      Core.pushUndo();
+      Core.placeX(rc);
+      Core.lastPaintRC = rc;
+      Gestures.state = GestureState.DRAWING;
+    }
+    else if(Core.mode==='select'){
+      const hit=hitItemAtRC(rc);
+      if(hit){
+        // DOUBLE-TAP DETECTION (FIXED)
+        const now = Date.now();
+        if(hit.type === Core.TYPES.P && now - lastTapTime < 300 && lastTapId === hit.id) {
+          // Double-tap detected - open edit modal
+          if(window.openPointModal) {
+            window.openPointModal(hit);
           }
-          Core.lastSelected = hit;
-          Core.markDirty('selection');
-          window.Draw.render();
-
-          Gestures.dragData = {
-            id: hit.id,
-            ids: Array.from(Core.selected),
-            anchorRC: rc,
-            originals: {},
-            didUndo: false
-          };
-          for (const id of Gestures.dragData.ids) {
-            const it = Core.items.find(x => x.id === id);
-            if (it) Gestures.dragData.originals[id] = { row: it.row, col: it.col };
-          }
-          Gestures.state = GestureState.SELECTING;
-          Core.lassoStart = null;
-
+          lastTapTime = 0;
+          lastTapId = null;
           return;
         }
-
-        Core.pushUndo(); 
-        Core.placeX(rc); 
-        Core.lastPaintRC=rc; 
-        Gestures.state=GestureState.DRAWING;
-      }
-      else if(Core.mode==='select'){
-        const hit=hitItemAtRC(rc);
-        if(hit){
-          const now = Date.now();
-          if(hit.type === Core.TYPES.P && now - lastTapTime < 300 && lastTapId === hit.id) {
-            if(window.openPointModal) {
-              window.openPointModal(hit);
-            }
-            lastTapTime = 0;
-            lastTapId = null;
-            return;
-          }
-          lastTapTime = now;
-          lastTapId = hit.id;
+        lastTapTime = now;
+        lastTapId = hit.id;
         
-          if(!Core.selected.has(hit.id)) { 
-            Core.selected.clear(); 
-            Core.selected.add(hit.id); 
-          }
-          Core.lastSelected=hit;
-          Core.markDirty('selection'); 
-          window.Draw.render();
-        
-          Gestures.dragData={
-            id:hit.id,
-            ids:Array.from(Core.selected),
-            anchorRC:rc,
-            originals:{},
-            didUndo:false
-          };
-          for(const id of Gestures.dragData.ids){
-            const it=Core.items.find(x=>x.id===id);
-            if(it) Gestures.dragData.originals[id]={row:it.row,col:it.col};
-          }
-          Gestures.state=GestureState.SELECTING;
-          Core.lassoStart=null;
-        }else{
+        if(!Core.selected.has(hit.id)) { 
           Core.selected.clear(); 
-          Core.markDirty('selection'); 
-          window.Draw.render();
-          Gestures.dragData=null; 
-          Core.lassoStart={x:Core._mouseW.x,y:Core._mouseW.y};
-          Gestures.state=GestureState.LASSO;
+          Core.selected.add(hit.id); 
+        }
+        Core.lastSelected=hit;
+        Core.markDirty('selection'); 
+        window.Draw.render();
+        
+        Gestures.dragData={
+          id:hit.id,
+          ids:Array.from(Core.selected),
+          anchorRC:rc,
+          originals:{},
+          didUndo:false
+        };
+        for(const id of Gestures.dragData.ids){
+          const it=Core.items.find(x=>x.id===id);
+          if(it) Gestures.dragData.originals[id]={row:it.row,col:it.col};
+        }
+        Gestures.state=GestureState.SELECTING;
+        Core.lassoStart=null;
+      }else{
+        // When starting a selection with touch, check for multi‑touch. Two‑finger
+        // gestures should pan/zoom instead of starting a lasso.
+        if (e.pointerType === 'touch' && Gestures.pointers.size > 1) {
+          // Switch to panning state and do not start lasso
+          Gestures.state = GestureState.PANNING;
+          Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
+          Core.lassoStart = null;
+          return;
+        }
+        Core.selected.clear();
+        Core.markDirty('selection');
+        window.Draw.render();
+        Gestures.dragData = null;
+        Core.lassoStart = { x: Core._mouseW.x, y: Core._mouseW.y };
+        Gestures.state = GestureState.LASSO;
+      }
+    }
+  } else if(Gestures.pointers.size===2){
+    // Multi‑touch detected (e.g. pinch or two‑finger pan). If a draw was
+    // initiated by a first touch in draw mode, remove the temporary X so
+    // two‑finger gestures don't add blocks.
+    if (Core.mode === 'draw' && Core.lastPaintRC) {
+      const rcLast = Core.lastPaintRC;
+      // Remove the last placed X if it covers the last paint RC
+      for (let i = Core.items.length - 1; i >= 0; i--) {
+        const it = Core.items[i];
+        if (it.type === Core.TYPES.X && rcLast.r >= it.row && rcLast.r < it.row + Core.SIZE.X && rcLast.c >= it.col && rcLast.c < it.col + Core.SIZE.X) {
+          Core.items.splice(i, 1);
+          Core.markDirty('items');
+          if (window.Draw) window.Draw.render();
+          break;
         }
       }
-    } else if(Gestures.pointers.size===2){
-      const [a,b]=[...Gestures.pointers.values()], mid=midpoint(a,b);
-      Gestures.pinchData={
-        startDist:distance(a,b), 
-        startZoom:Core.zoom, 
-        midCSS:mid,
-        midWorld:worldAtScreen(mid.x,mid.y)
-      };
-      Gestures.state=GestureState.PINCHING;
+      Core.lastPaintRC = null;
     }
+    const [a,b]=[...Gestures.pointers.values()], mid=midpoint(a,b);
+    Gestures.pinchData={
+      startDist:distance(a,b),
+      startZoom:Core.zoom,
+      midCSS:mid,
+      midWorld:worldAtScreen(mid.x,mid.y)
+    };
+    Gestures.state=GestureState.PINCHING;
   }
-	
-	
-	function handlePointerMove(e) {
+}
+
+  // ============================================================
+  // POINTER MOVE HANDLER (FIXED - ZOOM TO VIEWPORT CENTER)
+  // ============================================================
+  function handlePointerMove(e) {
     if (!Gestures.pointers.has(e.pointerId)) return;
     e.preventDefault();
     Gestures.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const Core = getCore();
     const rc = Core.evtRC(e);
 
-// --- Measure tool live preview (two-click flow) ---
-const M = window.Features && window.Features.Measure;
-if (M && M.enabled && M.firstWorld) {
-  M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
-  Core.markDirty('view');
-  window.Draw.renderImmediate();
-}
-
-
-
+    // Live update for measure tool on pointer move (two‑click flow). When measure
+    // tool is enabled and a start point exists, update the current world
+    // coordinate on every pointer move. This allows the dashed line to follow
+    // the finger or mouse without requiring the button to be held.
+    try {
+      const M = window.Features && window.Features.Measure;
+      if (M && M.enabled && M.firstWorld) {
+        M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
+        Core.markDirty('view');
+        if (window.Draw && window.Draw.renderImmediate) window.Draw.renderImmediate();
+      }
+    } catch (err) {
+      // ignore measure update errors
+    }
 
     if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
       Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
@@ -1303,6 +1390,7 @@ if (M && M.enabled && M.firstWorld) {
       return;
     }
 
+    // FIXED: Pinch zoom anchors to viewport center
     if (Gestures.state === GestureState.PINCHING && Gestures.pointers.size === 2) {
       const [a, b] = [...Gestures.pointers.values()];
       const mid = midpoint(a, b);
@@ -1312,26 +1400,32 @@ if (M && M.enabled && M.firstWorld) {
       const distChange = Math.abs(dist - pinch.startDist);
       const scaleChange = dist / (pinch.startDist || dist);
 
+      // Check if this is mostly a pan (fingers stay same distance apart)
       const isPan = (distChange / pinch.startDist) < 0.05;
 
       if (isPan) {
+        // Two-finger pan
         Core.pan.x += (mid.x - pinch.midCSS.x);
         Core.pan.y += (mid.y - pinch.midCSS.y);
         pinch.midCSS = mid;
       } else {
+        // Pinch zoom - anchor to center of viewport
         const dynamicMax = Core.getDynamicMaxZoom ? Core.getDynamicMaxZoom() : 8;
         const targetZoom = pinch.startZoom * scaleChange;
         const oldZoom = Core.zoom;
         Core.zoom = Math.max(0.4, Math.min(dynamicMax, targetZoom));
         
+        // Get viewport center
         const canvas = getCanvas();
         const rect = canvas.getBoundingClientRect();
         const centerX = rect.width / 2;
         const centerY = rect.height / 2;
         
+        // Calculate world point at center BEFORE zoom change
         const centerWorldX = (centerX - Core.pan.x) / oldZoom;
         const centerWorldY = (centerY - Core.pan.y) / oldZoom;
         
+        // Keep that world point at center AFTER zoom change
         Core.pan.x = centerX - centerWorldX * Core.zoom;
         Core.pan.y = centerY - centerWorldY * Core.zoom;
 
@@ -1357,7 +1451,13 @@ if (M && M.enabled && M.firstWorld) {
       return;
     }
 
+    // If lasso selection is active but a second finger is present, abort lasso and pan instead
     if (Gestures.state === GestureState.LASSO) {
+      if (e.pointerType === 'touch' && Gestures.pointers.size > 1) {
+        Gestures.state = GestureState.PANNING;
+        Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
+        return;
+      }
       window.Draw.render();
       return;
     }
@@ -1462,6 +1562,9 @@ if (M && M.enabled && M.firstWorld) {
     }
   }
 
+  // ============================================================
+  // POINTER UP HANDLER
+  // ============================================================
   function handlePointerUp(e){
     e.preventDefault();
     const canvas = getCanvas(), Core = getCore();
@@ -1511,140 +1614,280 @@ if (M && M.enabled && M.firstWorld) {
     }
   }
 
-  function handleContextMenu(e){
-    e.preventDefault();
-    
-    // PRIORITY: If measure tool is active, show stop menu
-    if(window.Features && window.Features.Measure && window.Features.Measure.enabled) {
-      const items = [
-        { 
-          icon:'ℹ️', 
-          label:'Stop Measure Tool', 
-          action: () => {
-            window.Features.Measure.toggle();
-          }
-        }
-      ];
-      showDToolsContextMenu(e.clientX, e.clientY, items);
-      return;
-    }
-    
-    const Core = getCore();
-    const x = e.clientX, y = e.clientY;
-    const selectedCount = Core.selected ? Core.selected.size : 0;
-    const getById = (id) => document.getElementById(id);
-    const rc = Core.evtRC(e);
-    const hit = hitItemAtRC(rc);
-    const isSelect = (Core.mode === 'select') || Core.selectionMode === true;
-    const isDraw   = (Core.mode === 'draw') && !isSelect;
-    
-    if (isSelect && hit) {
-      if (!Core.selected.has(hit.id)) {
-        Core.selected.clear();
-        Core.selected.add(hit.id);
-        Core.lastSelected = hit;
-        Core.markDirty('selection');
-        if (window.Draw) window.Draw.render();
-      }
-    }
+// ============================================================
+// CONTEXT MENU HANDLER (mode-aware: draw vs select)
+// ============================================================
+function handleContextMenu(e){
+  e.preventDefault();
+  const Core = getCore();
+  const x = e.clientX, y = e.clientY;
 
-    const selectedIds = Array.from(Core.selected || []);
-    const selectedItems = selectedIds.map(id => Core.items.find(it => it.id === id)).filter(Boolean);
-    const selectedPointsCount = selectedItems.filter(it => it.type === Core.TYPES.P).length;
+  // Helper: selected counts
+  const selectedCount = Core.selected ? Core.selected.size : 0;
+  const getById = (id) => document.getElementById(id);
 
-    const canPaste = !!Core.clipboard && Core.clipboard.length > 0;
-    const canAlign = selectedCount >= 2;
+  // Compute hit item under cursor (grid-aware)
+  const rc = Core.evtRC(e);
+  const hit = hitItemAtRC(rc);
 
-    const canEditPoint =
-      (hit && hit.type === Core.TYPES.P) ||
-      (selectedCount === 1 && selectedItems[0]?.type === Core.TYPES.P);
+  // Determine modes (Core.mode is authoritative, fallback to selectionMode)
+  const isSelect = (Core.mode === 'select') || Core.selectionMode === true;
+  const isDraw   = (Core.mode === 'draw') && !isSelect;
 
-    const canTogglePointAction =
-      (hit && hit.type === Core.TYPES.P) || (selectedPointsCount > 0);
-
-    const items = [];
-
-    if (isDraw) {
-      items.push(
-        { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
-        'divider'
-      );
-      
-      if (window.ElementPresets) {
-        for (const [key, config] of Object.entries(window.ElementPresets)) {
-          items.push({
-            icon: config.icon || '📍',
-            label: config.menuLabel || config.label,
-            action: () => addPresetElement(key)
-          });
-        }
-      }
-      
-      items.push(
-        'divider',
-        { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-        { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
-      );
-
-      showDToolsContextMenu(x, y, items);
-      return;
-    }
-
-    function addPresetElement(preset) {
-      const Core = getCore();
-      const canvas = document.getElementById('board');
-      const rect = canvas.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const world = Core.screenToWorld(cx, cy);
-      const rc = Core.worldToRC(world.x, world.y);
-
-      Core.pushUndo(true);
-
-      const config = window.ElementPresets ? window.ElementPresets[preset] : null;
-      
-      if (config) {
-        Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-        if (window.UI && window.UI.Toast) {
-          window.UI.Toast.success(`${config.label} added`);
-        }
-        Core.markDirty('items');
-        if (window.Draw) window.Draw.render();
-      }
-    }
-
-    items.push(
-      { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
-      { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
-      { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
-      { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-      { icon:'🔳', label:'Deselect', action:()=>{ Core.selected.clear(); Core.markDirty('selection'); if(window.Draw) window.Draw.render(); }, disabled: selectedCount === 0 },
-
-      'divider',
-
-      { icon:'↔️', label:'Align Horizontal', action:()=>{ const b=getById('align-h'); if(b) b.click(); }, disabled: !canAlign },
-      { icon:'↕️', label:'Align Vertical',   action:()=>{ const b=getById('align-v'); if(b) b.click(); }, disabled: !canAlign },
-
-      'divider',
-
-      { icon:'✏️', label:'Edit Point',    action:()=>{ const b=getById('edit-point'); if(b) b.click(); },    disabled: !canEditPoint },
-      { icon:'🔒', label:'Lock/Unlock',   action:()=>{ const b=getById('toggle-lock'); if(b) b.click(); },    disabled: !canTogglePointAction },
-      { icon:'💡', label:'Toggle Light',  action:()=>{ const b=getById('lights'); if(b) b.click(); },         disabled: !canTogglePointAction },
-
-      'divider',
-
-      { icon:'🗑️', label:'Clear All',     action:()=>{ const b=getById('clear'); if(b) b.click(); } }
-    );
-
-    showDToolsContextMenu(x, y, items);
-  }
-
-  function showDToolsContextMenu(x, y, items) {
-    if (window.UI && window.UI.showContextMenu) {
-      window.UI.showContextMenu(x, y, items);
+  // If we're in Select mode and right-clicked an item, select it first
+  if (isSelect && hit) {
+    if (!Core.selected.has(hit.id)) {
+      Core.selected.clear();
+      Core.selected.add(hit.id);
+      Core.lastSelected = hit;
+      Core.markDirty('selection');
+      if (window.Draw) window.Draw.render();
     }
   }
 
+  // Compute point-related capabilities
+  const selectedIds = Array.from(Core.selected || []);
+  const selectedItems = selectedIds.map(id => Core.items.find(it => it.id === id)).filter(Boolean);
+  const selectedPointsCount = selectedItems.filter(it => it.type === Core.TYPES.P).length;
+
+  const canPaste = !!Core.clipboard && Core.clipboard.length > 0;
+  const canAlign = selectedCount >= 2;
+
+  // Edit Point is allowed when:
+  // - right-click is on a Point, OR
+  // - exactly one selected item and it's a Point
+  const canEditPoint =
+    (hit && hit.type === Core.TYPES.P) ||
+    (selectedCount === 1 && selectedItems[0]?.type === Core.TYPES.P);
+
+  // Lock/Light actions allowed when:
+  // - right-click is on a Point, OR
+  // - at least one selected Point
+  const canTogglePointAction =
+    (hit && hit.type === Core.TYPES.P) || (selectedPointsCount > 0);
+
+  const items = [];
+
+if (isDraw) {
+  // Draw mode menu: expanded with all elements
+  items.push(
+    { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
+    'divider',
+    { icon:'🛡️', label:'Alliance Center (9×9)', action:()=>{ addPresetElement('alliance'); } },
+    { icon:'💧', label:'Lake S4 (11×9)', action:()=>{ addPresetElement('lake'); } },
+    { icon:'⛏️', label:'Mine (1×1)', action:()=>{ addPresetElement('mine'); } },
+    { icon:'⛰️', label:'Mountain (17×18)', action:()=>{ addPresetElement('mountain'); } },
+    { icon:'🔮', label:'Secret Task (3×3)', action:()=>{ addPresetElement('secret'); } },
+    { icon:'🏰', label:'Stronghold (5×5)', action:()=>{ addPresetElement('stronghold'); } },
+    { icon:'🪙', label:'Trade Post (5×4)', action:()=>{ addPresetElement('tradepost'); } }
+  );
+
+  // If there are selected items in draw mode, include a Delete option
+  if (selectedCount > 0) {
+    items.push('divider');
+    items.push({
+      icon: '✖',
+      label: 'Delete',
+      action: () => {
+        const delBtn = document.getElementById('delete-selected');
+        if (delBtn) delBtn.click();
+      }
+    });
+  }
+
+  // Always include select/clear all actions at the end
+  items.push(
+    'divider',
+    { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
+    { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
+  );
+
+  showDToolsContextMenu(x, y, items);
+  return;
+}
+
+// Helper function to add preset elements
+function addPresetElement(preset) {
+  const Core = getCore();
+  const canvas = document.getElementById('board');
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const world = Core.screenToWorld(cx, cy);
+  const rc = Core.worldToRC(world.x, world.y);
+
+  Core.pushUndo(true);
+
+const presets = {
+    alliance: { 
+      sizeW: 9, sizeH: 9, 
+      label: 'Alliance', 
+      color: '#4363d8', 
+      image: './images/alliance-center-s4.png',
+      area: 17,
+      fillAlpha: 50,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 30,
+      areaColor: '#4363d8',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: true
+    },
+    lake: { 
+      sizeW: 11, sizeH: 9, 
+      label: 'Lake S4', 
+      color: '#46f0f0', 
+      image: './images/lake-s4.png',
+      area: 15,
+      fillAlpha: 60,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 25,
+      areaColor: '#46f0f0',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: false
+    },
+    mine: { 
+      sizeW: 1, sizeH: 1, 
+      label: 'Mine', 
+      color: '#9a6324', 
+      image: null,
+      area: 5,
+      fillAlpha: 100,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 30,
+      areaColor: '#9a6324',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: false
+    },
+    mountain: { 
+      sizeW: 17, sizeH: 18, 
+      label: 'Mountain', 
+      color: '#800000', 
+      image: './images/mountain-s4.png',
+      area: 20,
+      fillAlpha: 40,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 20,
+      areaColor: '#800000',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: false
+    },
+    secret: { 
+      sizeW: 3, sizeH: 3, 
+      label: 'Secret Task', 
+      color: '#f032e6', 
+      image: './images/secret-task.png',
+      area: 8,
+      fillAlpha: 70,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 35,
+      areaColor: '#f032e6',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: false
+    },
+    stronghold: {
+      sizeW: 5, sizeH: 5,
+      label: 'Stronghold', 
+      color: '#f032e6', 
+      image: './images/Stronghold.png',
+      area: 8,
+      fillAlpha: 70,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 35,
+      areaColor: '#f032e6',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: true
+    },
+    tradepost: {
+      sizeW: 5, sizeH: 4,
+      label: 'Trade Post', 
+      color: '#f58231',
+      image: './images/TradePost.png',
+      area: 6,
+      fillAlpha: 70,
+      borderAlpha: 100,
+      borderWidth: 1,
+      borderColor: '#000000',
+      areaAlpha: 35,
+      areaColor: '#f58231',
+      areaBorderAlpha: 100,
+      areaBorderWidth: 2,
+      glow: true
+    }
+  };
+  
+  const config = presets[preset];
+  if (config) {
+    Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
+    if (window.UI && window.UI.Toast) {
+      window.UI.Toast.success(`${config.label} added`);
+    }
+    Core.markDirty('items');
+    if (window.Draw) window.Draw.render();
+  }
+}
+
+  // Select mode menu (order exactly as requested)
+  items.push(
+    // First group
+    { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
+    { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
+    { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
+    { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
+	{ icon:'🔳', label:'Deselect', action:()=>{ Core.selected.clear(); Core.markDirty('selection'); if(window.Draw) window.Draw.render(); }, disabled: selectedCount === 0 },
+
+    'divider',
+
+    // Align group
+    { icon:'↔️', label:'Align Horizontal', action:()=>{ const b=getById('align-h'); if(b) b.click(); }, disabled: !canAlign },
+    { icon:'↕️', label:'Align Vertical',   action:()=>{ const b=getById('align-v'); if(b) b.click(); }, disabled: !canAlign },
+
+    'divider',
+
+    // Point-specific actions
+    { icon:'✏️', label:'Edit Point',    action:()=>{ const b=getById('edit-point'); if(b) b.click(); },    disabled: !canEditPoint },
+    { icon:'🔒', label:'Lock/Unlock',   action:()=>{ const b=getById('toggle-lock'); if(b) b.click(); },    disabled: !canTogglePointAction },
+    { icon:'💡', label:'Toggle Light',  action:()=>{ const b=getById('lights'); if(b) b.click(); },         disabled: !canTogglePointAction },
+
+    'divider',
+
+    // Always present
+    { icon:'🗑️', label:'Clear All',     action:()=>{ const b=getById('clear'); if(b) b.click(); } }
+  );
+
+  showDToolsContextMenu(x, y, items);
+}
+
+// ============================================================
+// DTools context menu wrapper (reuses your UI system)
+// Accepts explicit items so we can control lists per mode
+// ============================================================
+function showDToolsContextMenu(x, y, items) {
+  if (window.UI && window.UI.showContextMenu) {
+    window.UI.showContextMenu(x, y, items);
+  }
+}
+
+  // ============================================================
+  // INITIALIZE GESTURE HANDLERS
+  // ============================================================
   function init(){
     const canvas=getCanvas(); 
     if(!canvas){
@@ -1663,30 +1906,67 @@ if (M && M.enabled && M.firstWorld) {
   else init();
   
   window.Gestures=Gestures;
+  
+  // ============================================================
+  // GLOBAL EXPORTS
+  // ============================================================
   window.getCore = function() { return window.Core; };
 
-  window.addPresetElementFromMenu = function(preset) {
-    const Core = getCore();
-    const canvas = document.getElementById('board');
-    const rect = canvas.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const world = Core.screenToWorld(cx, cy);
-    const rc = Core.worldToRC(world.x, world.y);
+  window.setZoomPct = function(pct, anchor) {
+    const Core = window.Core;
+    if (!Core || !Core.canvas) return;
 
-    Core.pushUndo(true);
+    const dynamicMax = Core.getDynamicMaxZoom();
+    const newZoom = Math.max(0.4, Math.min(dynamicMax, pct / 100));
 
-    const config = window.ElementPresets ? window.ElementPresets[preset] : null;
-    
-    if (config) {
-      Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-      if (window.UI && window.UI.Toast) {
-        window.UI.Toast.success(`${config.label} added`);
-      }
-      Core.markDirty('items');
-      if (window.Draw) window.Draw.render();
-    }
+    const rect = Core.canvas.getBoundingClientRect();
+    const clientX = rect.left + anchor.x;
+    const clientY = rect.top + anchor.y;
+    const worldPt = Core.screenToWorld(clientX, clientY);
+
+    Core.zoom = newZoom;
+    Core.pan.x = anchor.x - worldPt.x * Core.zoom;
+    Core.pan.y = anchor.y - worldPt.y * Core.zoom;
+    if (Core.clampPan) Core.clampPan();
+    Core.markDirty('view');
+    if (window.Draw) window.Draw.render();
   };
   
+  // ============================================================
+  // IMAGE PRELOADER
+  // ============================================================
+  Core.preloadImages = function() {
+    const imagePaths = [
+      './images/alliance-center-s4.png',
+      './images/lake-s4.png',
+      './images/mountain-s4.png',
+      './images/secret-task.png',
+      './images/Stronghold.png',
+      './images/TradePost.png'
+    ];
+    
+    imagePaths.forEach(path => {
+      const img = new Image();
+      img.onload = () => {
+        console.log('Preloaded:', path);
+      };
+      img.onerror = () => {
+        console.warn('Failed to preload:', path);
+      };
+      img.src = path;
+    });
+  };
+
+  // Preload images on startup
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => Core.preloadImages());
+  } else {
+    Core.preloadImages();
+  }
+
+  // ============================================================
+  // EXPORT TO GLOBAL SCOPE
+  // ============================================================
+  window.Core = Core;
+  
 })();
-	
