@@ -40,6 +40,12 @@
           <button id="mode-select">Select</button>
           <button id="mode-view">View</button>
         </div>
+        <!-- Mobile-only mode selector: appears on small screens instead of individual buttons -->
+        <select id="mode-select-dropdown" class="mode-select-dropdown">
+          <option value="draw">Draw</option>
+          <option value="select">Select</option>
+          <option value="view">View</option>
+        </select>
       </div>
 
       <!-- ============================================================ -->
@@ -82,8 +88,14 @@
       <div class="dropdown">
         <button id="points-list">+ Element ▼</button>
         <div class="dropdown-content" id="points-dropdown">
-  <!-- Auto-generated from elements-config.js -->
-	  </div>
+          <button data-preset="alliance">Alliance Center (9×9)</button>
+          <button data-preset="lake">Lake S4 (11×9)</button>
+          <button data-preset="mine">Mine (1×1)</button>
+          <button data-preset="mountain">Mountain (17×18)</button>
+          <button data-preset="secret">Secret Task (3×3)</button>
+		  <button data-preset="stronghold">Stronghold (5×5)</button>
+		  <button data-preset="tradepost">Trade Post (5×4)</button>
+        </div>
       </div>
       <button id="add-point">+ Custom</button>
       <button id="edit-point">Edit Custom</button>
@@ -145,7 +157,6 @@
   <!-- ============================================================ -->
   <!-- LEGEND EDIT MODAL -->
   <!-- ============================================================ -->
-	
   <div class="modal" id="legend-modal" aria-hidden="true">
     <div class="modal-backdrop" id="legend-modal-backdrop"></div>
     <div class="modal-card" role="dialog" aria-modal="true">
@@ -233,139 +244,146 @@
     </div>
   </div>
 
- <!-- ============================================================ -->
-<!-- HELP OVERLAY WITH INSTRUCTIONS (REVISED) -->
-<!-- ============================================================ -->
-<div class="help-overlay" id="help-overlay">
-  <div class="help-backdrop" id="help-backdrop"></div>
-  <div class="help-card">
-    <h2>MapPlanner — Help</h2>
+  <!-- ============================================================ -->
+  <!-- HELP OVERLAY WITH INSTRUCTIONS -->
+  <!-- ============================================================ -->
+  <div class="help-overlay" id="help-overlay">
+    <div class="help-backdrop" id="help-backdrop"></div>
+    <div class="help-card">
+      <h2>MapPlanner - Help & Instructions</h2>
 
-    <!-- Quick Start -->
-    <div class="help-group">
-      <h3 class="help-toggle">⚡ Quick Start (1 minute)</h3>
-      <div class="help-content show">
-        <ol style="padding-left:20px; line-height:1.6; margin:8px 0;">
-          <li>Pick a <b>Mode</b> (top bar): <b>Draw</b> / <b>Select</b> / <b>View</b>.</li>
-          <li>In <b>Draw</b>, click the grid to place bases (X). Use <b>+ Element</b> for preset items.</li>
-          <li>In <b>Select</b>, click to select, <b>drag</b> to move, or drag empty space to <b>lasso</b>.</li>
-          <li>Use the <b>zoom slider</b>, mouse wheel, or pinch; press <b>F</b> for <b>Fit View</b>.</li>
-          <li>Open <b>DTools</b> for Edit, Align, +Element, +Custom, Lock, etc.</li>
-        </ol>
+      <!-- Basic Operations -->
+      <div class="help-group">
+        <h3 class="help-toggle">📱 Basic Operations</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Modes:</b> Choose between <b>Draw</b>, <b>Select</b>, and <b>View</b> using buttons in the top toolbar</li>
+            <li><b>Draw Mode:</b> Tap/click to place X blocks (bases) on the grid</li>
+            <li><b>Select Mode:</b> Tap/click to select items, drag to move them, lasso-select by dragging on empty space</li>
+            <li><b>View Mode:</b> Pan the canvas by dragging (no selection or drawing)</li>
+            <li><b>Zoom:</b> Use mouse wheel, pinch gesture, or the zoom slider</li>
+            <li><b>Mobile:</b> Double-tap a Point to edit it</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Modes -->
-    <div class="help-group">
-      <h3 class="help-toggle">🎯 Modes</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Draw:</b> Place bases (X) by clicking. Hold & drag to paint multiple.</li>
-          <li><b>Select:</b> Click to select. Drag to move. Drag on empty area to lasso multiple.</li>
-          <li><b>View:</b> Pan without selecting or drawing (safe viewing mode).</li>
-        </ul>
+      <!-- Drawing Tools (DTools) -->
+      <div class="help-group">
+        <h3 class="help-toggle">🎨 Drawing Tools (DTools)</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>+ Element:</b> Add preset elements like Alliance Center, Mountain, Lake, etc.</li>
+            <li><b>+ Custom:</b> Add a custom point at the center of the view</li>
+            <li><b>Edit Custom:</b> Edit properties of selected point (size, color, label, image, etc.)</li>
+            <li><b>Lock/Unlock:</b> Toggle lock status to prevent accidental movement</li>
+            <li><b>Light Base:</b> Toggle selected X blocks to Y blocks (light sources) and vice versa</li>
+            <li><b>Align H/V:</b> Auto-arrange selected X blocks horizontally or vertically with custom spacing</li>
+            <li><b>Delete:</b> Remove selected items</li>
+            <li><b>Copy/Paste:</b> Duplicate selected items</li>
+            <li><b>Clear All:</b> Remove everything from the canvas (cannot be undone separately)</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- DTools -->
-    <div class="help-group">
-      <h3 class="help-toggle">🧰 DTools (Drawing Tools)</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Delete / Copy / Paste / Select All / Deselect / Clear All</b></li>
-          <li><b>Align H / Align V:</b> Arrange selected bases; set <b>N</b> and <b>Gap</b> values.</li>
-          <li><b>+ Element ▼:</b> Add presets (Alliance Center, Mountain, Lake, etc.). The list is auto-built from <code>elements-config.js</code>.</li>
-          <li><b>+ Custom:</b> Add a configurable Point (P) at the view center.</li>
-          <li><b>Edit Custom:</b> Change label, size (W/H), area glow, colors, borders, image.</li>
-          <li><b>Lock/Unlock:</b> Prevent moving selected items by accident.</li>
-          <li><b>Light Base:</b> Toggle selected bases between X and Y (light sources).</li>
-        </ul>
+      <!-- Menu Options -->
+      <div class="help-group">
+        <h3 class="help-toggle">⚙️ Menu Options</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Grid Size:</b> Change grid dimensions (20-2000). Enter size and click "Apply"</li>
+            <li><b>Measure Tool:</b> Click to measure distance between two tiles (shows tile count)</li>
+            <li><b>Auto-Save:</b> Enable to automatically save your work to browser storage every 30 seconds</li>
+            <li><b>Load Auto-Save:</b> Restore the last auto-saved session</li>
+            <li><b>Save/Load JSON:</b> Export and import your entire map as a JSON file</li>
+            <li><b>Export PNG:</b> Download canvas as image (includes legend at bottom)</li>
+            <li><b>Export CSV:</b> Export item data as spreadsheet-compatible CSV</li>
+            <li><b>Toggle Theme:</b> Switch between Dark and Light color schemes</li>
+            <li><b>Stats Overlay:</b> Show FPS counter and item statistics</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Legend & Colors -->
-    <div class="help-group">
-      <h3 class="help-toggle">🎨 Colors & Legend</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Color</b> button: apply a color to selected X/Y blocks.</li>
-          <li><b>Legend</b> shows all used colors. Click a color to set a label.</li>
-          <li><b>Auto-numbering:</b> X and Y blocks are numbered by position & color.</li>
-        </ul>
+      <!-- Keyboard Shortcuts -->
+      <div class="help-group">
+        <h3 class="help-toggle">⌨️ Keyboard Shortcuts</h3>
+        <div class="help-content">
+          <ul>
+            <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>: Undo / Redo</li>
+            <li><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd>: Copy / Paste selected items</li>
+            <li><kbd>Delete</kbd> or <kbd>Backspace</kbd>: Delete selected</li>
+            <li><kbd>F</kbd>: Fit view to show all content</li>
+            <li><kbd>Esc</kbd>: Deselect all items</li>
+            <li><kbd>Ctrl+A</kbd>: Select all items</li>
+            <li><kbd>Ctrl+Shift+C</kbd>: Clear all</li>
+            <li><kbd>?</kbd>: Show/hide this help overlay</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Menu -->
-    <div class="help-group">
-      <h3 class="help-toggle">⚙️ Menu</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Grid Size:</b> 20–2000. Enter a value then click <b>Apply</b>.</li>
-          <li><b>Measure Tool:</b> Click twice on the grid to get distance (tiles). Right-click to exit. (Also available by button.)</li>
-          <li><b>Auto-Save:</b> Saves to your browser every 30s when ON; <b>Load Auto-Save</b> restores it.</li>
-          <li><b>Save/Load JSON:</b> Export/import your full map (<b>items, colors, grid</b>).</li>
-          <li><b>Export PNG:</b> Download an image of the canvas (legend included).</li>
-          <li><b>Export CSV:</b> Export item data to a spreadsheet.</li>
-          <li><b>Toggle Theme:</b> Switch between Dark/Light UI.</li>
-          <li><b>Stats Overlay:</b> Show FPS and item stats.</li>
-        </ul>
+      <!-- Legend & Colors -->
+      <div class="help-group">
+        <h3 class="help-toggle">🎨 Legend & Colors</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Color Button:</b> Apply colors to selected X/Y blocks</li>
+            <li><b>Legend Panel:</b> Shows all colors used in your map</li>
+            <li><b>Edit Labels:</b> Click any legend color to add a custom label</li>
+            <li><b>Auto-Numbering:</b> X and Y blocks are automatically numbered based on their position and color</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Keyboard + Mouse -->
-    <div class="help-group">
-      <h3 class="help-toggle">⌨️ Keyboard & 🖱️ Mouse</h3>
-      <div class="help-content">
-        <ul>
-          <li><kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> Undo/Redo &nbsp;•&nbsp; <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> Copy/Paste</li>
-          <li><kbd>Delete</kbd> Remove selected &nbsp;•&nbsp; <kbd>Esc</kbd> Deselect all &nbsp;•&nbsp; <kbd>Ctrl+A</kbd> Select all</li>
-          <li><kbd>F</kbd> Fit View &nbsp;•&nbsp; <kbd>Ctrl+Shift+C</kbd> Clear All &nbsp;•&nbsp; <kbd>?</kbd> Toggle Help</li>
-          <li><b>Mouse:</b> Wheel to zoom (toward cursor), drag to pan in <b>View</b> mode.</li>
-        </ul>
+      <!-- Points (Custom Elements) -->
+      <div class="help-group">
+        <h3 class="help-toggle">📍 Points (Custom Elements)</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Size:</b> Set custom width and height for each point</li>
+            <li><b>Label:</b> Add text label (displayed in center)</li>
+            <li><b>Colors:</b> Customize fill color, area glow color, borders</li>
+            <li><b>Transparency:</b> Control opacity of fill, area, and borders separately</li>
+            <li><b>Area Glow:</b> Toggle glowing radius around point</li>
+            <li><b>Image Overlay:</b> Upload custom image to display on point</li>
+            <li><b>Lock:</b> Prevent accidental movement when locked</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Touch -->
-    <div class="help-group">
-      <h3 class="help-toggle">📱 Touch (Mobile/Tablet)</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Pinch</b> to zoom, <b>two-finger drag</b> to pan (any mode).</li>
-          <li><b>Double-tap</b> a Point (P) to open the editor.</li>
-        </ul>
+      <!-- Tips & Tricks -->
+      <div class="help-group">
+        <h3 class="help-toggle">💡 Tips & Tricks</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Fast Drawing:</b> In Draw mode, hold and drag to paint multiple blocks</li>
+            <li><b>Multi-Select:</b> In Select mode, drag across empty space to lasso-select multiple items</li>
+            <li><b>Collision Prevention:</b> Items cannot overlap - the app will find nearby free space automatically</li>
+            <li><b>Zoom Anywhere:</b> Scroll wheel zooms toward mouse cursor position</li>
+            <li><b>Touch Gestures:</b> Use two-finger pinch to zoom, two-finger drag to pan</li>
+            <li><b>Fit View:</b> Press 'F' or click "Fit View" to frame all content perfectly</li>
+            <li><b>Right Click:</b> Context menu in Select mode for quick actions</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Tips -->
-    <div class="help-group">
-      <h3 class="help-toggle">💡 Tips</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Fast Drawing:</b> In <b>Draw</b>, hold & drag to paint many bases quickly.</li>
-          <li><b>No Overlap:</b> Items can’t overlap; the app will try nearby free positions.</li>
-          <li><b>Fit View:</b> If you get “lost”, press <b>F</b>.</li>
-        </ul>
+      <!-- Troubleshooting -->
+      <div class="help-group">
+        <h3 class="help-toggle">🔧 Troubleshooting</h3>
+        <div class="help-content">
+          <ul>
+            <li><b>Can't place items:</b> Check if area is occupied. Try smaller grid size or fit view first</li>
+            <li><b>Can't move items:</b> Make sure you're in Select mode. Check if item is locked</li>
+            <li><b>Lost your work:</b> Click "Load Auto-Save" if auto-save was enabled</li>
+            <li><b>Performance issues:</b> Reduce grid size or zoom level. Hide stats overlay</li>
+            <li><b>Touch not working:</b> Ensure you're using a supported browser (Chrome, Safari, Firefox)</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Troubleshooting -->
-    <div class="help-group">
-      <h3 class="help-toggle">🔧 Troubleshooting</h3>
-      <div class="help-content">
-        <ul>
-          <li><b>Can’t place/move:</b> Check for overlaps or locks. Try <b>Select</b> mode and <b>Fit View</b>.</li>
-          <li><b>Performance:</b> Use a smaller grid, zoom out a bit, or hide stats overlay.</li>
-          <li><b>Missing work:</b> Use <b>Load Auto-Save</b> (if Auto-Save was ON).</li>
-          <li><b>Touch issues:</b> Use a modern browser (Chrome/Safari/Firefox).</li>
-        </ul>
+      <div class="modal-actions">
+        <button id="help-close">Close</button>
       </div>
-    </div>
-
-    <div class="modal-actions">
-      <button id="help-close">Close</button>
     </div>
   </div>
-</div>
 
   <!-- ============================================================ -->
   <!-- STATS DISPLAY OVERLAY -->
@@ -390,11 +408,9 @@
   <!-- ============================================================ -->
   <!-- JAVASCRIPT FILES -->
   <!-- ============================================================ -->
-	<script src="elements-config.js"></script>   
 	<script src="app-core.js"></script>
 	<script src="app-ui.js"></script>
-	<script src="app-features.js"></script>
-	<script src="elements-helper.js"></script>    
+	<script src="app-features.js"></script>  <!-- ADD THIS LINE -->
 	<script src="app-main.js"></script>
 
   <!-- ============================================================ -->
@@ -465,16 +481,13 @@
           if(!window.Features) return;
           
           // Measure tool
-const measureBtn = document.getElementById('measure-tool');
-if (measureBtn) {
-  measureBtn.addEventListener('click', () => {
-    window.Features.Measure.toggle();
-    measureBtn.classList.toggle('active');
-    // Auto-hide any open panels after choosing the tool
-    if (typeof window.autoClose === 'function') window.autoClose();
-  });
-}
-
+          const measureBtn = document.getElementById('measure-tool');
+          if(measureBtn) {
+            measureBtn.addEventListener('click', () => {
+              window.Features.Measure.toggle();
+              measureBtn.classList.toggle('active');
+            });
+          }
           
           // Auto-save toggle
           const autosaveBtn = document.getElementById('autosave-toggle');
@@ -539,7 +552,7 @@ if (measureBtn) {
   <!-- FOOTER -->
   <!-- ============================================================ -->
   <footer>
-    MapPlanner - Designed by ReDragon [DxL-677]
+    MapPlanner - Designed by RëDπαgοπ [DxL-677]
   </footer>
 
 </body>
