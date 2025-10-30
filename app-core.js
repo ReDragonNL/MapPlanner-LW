@@ -1228,6 +1228,25 @@ function handlePointerDown(e){
       // NEW: In draw mode, allow selecting and dragging if clicking inside an item (no lasso)
       const hit = hitItemAtRC(rc);
       if (hit) {
+        // --- DOUBLE-TAP EDITING FOR POINTS IN DRAW MODE ---
+        // If the user double-taps on a point (P) while still in draw mode,
+        // open the point edit modal.  This matches the behaviour in select
+        // mode so users don't need to switch modes to edit a preset or custom
+        // point.  A double-tap is defined as two taps within 300ms on the
+        // same item.
+        {
+          const nowTap = Date.now();
+          if(hit.type === Core.TYPES.P && nowTap - lastTapTime < 300 && lastTapId === hit.id) {
+            if(window.openPointModal) {
+              window.openPointModal(hit);
+            }
+            lastTapTime = 0;
+            lastTapId = null;
+            return;
+          }
+          lastTapTime = nowTap;
+          lastTapId = hit.id;
+        }
         // Selection update: modifiers toggle-add, otherwise single-pick
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
           if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
@@ -1262,14 +1281,10 @@ function handlePointerDown(e){
       }
 
       // No hit -> proceed with normal draw behavior
-      // On touch devices we may be initiating a two‑finger pan. A second pointer
-      // arriving shortly after this one should not leave behind an extra X.
-      // Place the X immediately for mouse and single‑touch; removal on second
-      // touch is handled in the multi‑pointer branch below.
-      Core.pushUndo();
-      Core.placeX(rc);
-      Core.lastPaintRC = rc;
-      Gestures.state = GestureState.DRAWING;
+      Core.pushUndo(); 
+      Core.placeX(rc); 
+      Core.lastPaintRC=rc; 
+      Gestures.state=GestureState.DRAWING;
     }
     else if(Core.mode==='select'){
       const hit=hitItemAtRC(rc);
@@ -1310,45 +1325,19 @@ function handlePointerDown(e){
         Gestures.state=GestureState.SELECTING;
         Core.lassoStart=null;
       }else{
-        // When starting a selection with touch, check for multi‑touch. Two‑finger
-        // gestures should pan/zoom instead of starting a lasso.
-        if (e.pointerType === 'touch' && Gestures.pointers.size > 1) {
-          // Switch to panning state and do not start lasso
-          Gestures.state = GestureState.PANNING;
-          Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
-          Core.lassoStart = null;
-          return;
-        }
-        Core.selected.clear();
-        Core.markDirty('selection');
+        Core.selected.clear(); 
+        Core.markDirty('selection'); 
         window.Draw.render();
-        Gestures.dragData = null;
-        Core.lassoStart = { x: Core._mouseW.x, y: Core._mouseW.y };
-        Gestures.state = GestureState.LASSO;
+        Gestures.dragData=null; 
+        Core.lassoStart={x:Core._mouseW.x,y:Core._mouseW.y};
+        Gestures.state=GestureState.LASSO;
       }
     }
   } else if(Gestures.pointers.size===2){
-    // Multi‑touch detected (e.g. pinch or two‑finger pan). If a draw was
-    // initiated by a first touch in draw mode, remove the temporary X so
-    // two‑finger gestures don't add blocks.
-    if (Core.mode === 'draw' && Core.lastPaintRC) {
-      const rcLast = Core.lastPaintRC;
-      // Remove the last placed X if it covers the last paint RC
-      for (let i = Core.items.length - 1; i >= 0; i--) {
-        const it = Core.items[i];
-        if (it.type === Core.TYPES.X && rcLast.r >= it.row && rcLast.r < it.row + Core.SIZE.X && rcLast.c >= it.col && rcLast.c < it.col + Core.SIZE.X) {
-          Core.items.splice(i, 1);
-          Core.markDirty('items');
-          if (window.Draw) window.Draw.render();
-          break;
-        }
-      }
-      Core.lastPaintRC = null;
-    }
     const [a,b]=[...Gestures.pointers.values()], mid=midpoint(a,b);
     Gestures.pinchData={
-      startDist:distance(a,b),
-      startZoom:Core.zoom,
+      startDist:distance(a,b), 
+      startZoom:Core.zoom, 
       midCSS:mid,
       midWorld:worldAtScreen(mid.x,mid.y)
     };
@@ -1365,21 +1354,6 @@ function handlePointerDown(e){
     Gestures.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const Core = getCore();
     const rc = Core.evtRC(e);
-
-    // Live update for measure tool on pointer move (two‑click flow). When measure
-    // tool is enabled and a start point exists, update the current world
-    // coordinate on every pointer move. This allows the dashed line to follow
-    // the finger or mouse without requiring the button to be held.
-    try {
-      const M = window.Features && window.Features.Measure;
-      if (M && M.enabled && M.firstWorld) {
-        M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
-        Core.markDirty('view');
-        if (window.Draw && window.Draw.renderImmediate) window.Draw.renderImmediate();
-      }
-    } catch (err) {
-      // ignore measure update errors
-    }
 
     if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
       Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
@@ -1451,13 +1425,7 @@ function handlePointerDown(e){
       return;
     }
 
-    // If lasso selection is active but a second finger is present, abort lasso and pan instead
     if (Gestures.state === GestureState.LASSO) {
-      if (e.pointerType === 'touch' && Gestures.pointers.size > 1) {
-        Gestures.state = GestureState.PANNING;
-        Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
-        return;
-      }
       window.Draw.render();
       return;
     }
@@ -1679,24 +1647,7 @@ if (isDraw) {
     { icon:'⛰️', label:'Mountain (17×18)', action:()=>{ addPresetElement('mountain'); } },
     { icon:'🔮', label:'Secret Task (3×3)', action:()=>{ addPresetElement('secret'); } },
     { icon:'🏰', label:'Stronghold (5×5)', action:()=>{ addPresetElement('stronghold'); } },
-    { icon:'🪙', label:'Trade Post (5×4)', action:()=>{ addPresetElement('tradepost'); } }
-  );
-
-  // If there are selected items in draw mode, include a Delete option
-  if (selectedCount > 0) {
-    items.push('divider');
-    items.push({
-      icon: '✖',
-      label: 'Delete',
-      action: () => {
-        const delBtn = document.getElementById('delete-selected');
-        if (delBtn) delBtn.click();
-      }
-    });
-  }
-
-  // Always include select/clear all actions at the end
-  items.push(
+    { icon:'🪙', label:'Trade Post (5×4)', action:()=>{ addPresetElement('tradepost'); } },
     'divider',
     { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
     { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
