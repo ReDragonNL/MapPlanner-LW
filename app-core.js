@@ -1286,11 +1286,11 @@ function loadImage(src, callback) {
 // --- Measure tool live preview (two-click flow) ---
 const M = window.Features && window.Features.Measure;
 if (M && M.enabled && M.firstWorld) {
-  // Update the current end of the line as the pointer moves
   M.currentWorld = Core.screenToWorld(e.clientX, e.clientY);
   Core.markDirty('view');
-  window.Draw.renderImmediate(); // make the dashed line feel snappy
+  window.Draw.renderImmediate();
 }
+
 
 
 
