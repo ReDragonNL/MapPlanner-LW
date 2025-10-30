@@ -2,7 +2,7 @@
 // UI COMPONENTS - MapPlanner
 // Toast notifications, shortcuts, context menus, modals
 // All bugs fixed: DTools auto-hide, dropdown, grid size, etc.
-// PATCHED: Improved context menu handling
+// FIXED: Element dropdown now works + Select All added
 // ============================================================
 
 (function(){
@@ -23,9 +23,10 @@
     container: null,
     
     init() {
-      if(this.container) return;
+      if (this.container) return;
       this.container = document.createElement('div');
       this.container.id = 'toast-container';
+      // Default positioning: top right for desktop
       this.container.style.cssText = `
         position: fixed;
         top: 80px;
@@ -36,6 +37,23 @@
         gap: 10px;
         pointer-events: none;
       `;
+      // On small screens (mobile), reposition to bottom so that toasts do not
+      // obscure the top toolbar. Use safe-area inset when available.
+      try {
+        const vw = Math.min(window.innerWidth, window.innerHeight);
+        if (vw < 768) {
+          // Clear any top positioning
+          this.container.style.top = '';
+          // Place above the footer (approx 70px height) and account for safe area
+          const safeBottom = (typeof window !== 'undefined' && window.CSS && window.CSS.supports && window.CSS.supports('padding: env(safe-area-inset-bottom)'))
+            ? `calc(70px + env(safe-area-inset-bottom))`
+            : '70px';
+          this.container.style.bottom = safeBottom;
+          this.container.style.right = '20px';
+        }
+      } catch (err) {
+        // If any error occurs (e.g. window is undefined during SSR), ignore
+      }
       document.body.appendChild(this.container);
     },
     
@@ -84,7 +102,7 @@
   // ============================================================
   // CSS ANIMATIONS FOR TOASTS
   // ============================================================
-  const style = document.createElement('style');
+    const style = document.createElement('style');
   style.textContent = `
     @keyframes slideIn {
       from { transform: translateX(400px); opacity: 0; }
@@ -199,15 +217,40 @@
       menuItem.innerHTML = `${item.icon || ''} ${item.label}`;
       
       if(!item.disabled && item.action) {
-        menuItem.onclick = () => {
-          try {
-            item.action();
-            hideContextMenu();
-          } catch(err) {
-            console.error('Menu item action error:', err);
-            hideContextMenu();
-          }
-        };
+        // Check if this is the "Element ▼" item
+        const isElementMenu = item.label && item.label.includes('Element');
+        
+        if(isElementMenu) {
+          // For Element menu, show on hover
+          menuItem.addEventListener('mouseenter', () => {
+            try {
+              item.action();
+            } catch(err) {
+              console.error('Element menu action error:', err);
+            }
+          });
+          
+          // Also allow click
+          menuItem.onclick = (e) => {
+            e.stopPropagation();
+            try {
+              item.action();
+            } catch(err) {
+              console.error('Element menu click error:', err);
+            }
+          };
+        } else {
+          // Normal menu items
+          menuItem.onclick = () => {
+            try {
+              item.action();
+              hideContextMenu();
+            } catch(err) {
+              console.error('Menu item action error:', err);
+              hideContextMenu();
+            }
+          };
+        }
       }
       
       contextMenu.appendChild(menuItem);
@@ -216,12 +259,21 @@
     document.body.appendChild(contextMenu);
     
     const rect = contextMenu.getBoundingClientRect();
-    if(rect.right > window.innerWidth) {
-      contextMenu.style.left = (x - rect.width) + 'px';
+    // Adjust position if the menu would overflow the viewport. Clamp to 0 to
+    // prevent it from leaving the visible area on mobile devices.
+    let newLeft = x;
+    let newTop = y;
+    if (rect.right > window.innerWidth) {
+      newLeft = x - rect.width;
     }
-    if(rect.bottom > window.innerHeight) {
-      contextMenu.style.top = (y - rect.height) + 'px';
+    if (rect.bottom > window.innerHeight) {
+      newTop = y - rect.height;
     }
+    // Ensure the menu stays within the viewport bounds
+    if (newLeft < 0) newLeft = 0;
+    if (newTop < 0) newTop = 0;
+    contextMenu.style.left = newLeft + 'px';
+    contextMenu.style.top = newTop + 'px';
   }
   
   function hideContextMenu() {
@@ -229,28 +281,63 @@
       contextMenu.remove();
       contextMenu = null;
     }
+
+// -------------------------------------------------------------
+// AUTO-HIDE CONTEXT MENU (outside click, right-click elsewhere, Esc)
+// -------------------------------------------------------------
+document.addEventListener('click', (e) => {
+  const inFlyout = e.target.closest('[data-ctx-flyout="points"]');
+  if (contextMenu && !(contextMenu.contains(e.target) || inFlyout)) {
+    hideContextMenu();
   }
+});
 
-  // ============================================================
-  // AUTO-HIDE CONTEXT MENU
-  // ============================================================
-  document.addEventListener('click', (e) => {
-    const inFlyout = e.target.closest('[data-ctx-flyout="points"]');
-    if (contextMenu && !(contextMenu.contains(e.target) || inFlyout)) {
-      hideContextMenu();
-    }
-  });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      hideContextMenu();
-    }
-  });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    hideContextMenu();
+  }
+});
 
-  document.addEventListener('contextmenu', (e) => {
-    const isOnCanvas = e.target.id === 'board';
-    if (!isOnCanvas) hideContextMenu();
-  });
+  }
+  
+	document.addEventListener('contextmenu', (e) => {
+	  // if the right-click is on the grid in draw mode, let our handler take over
+	  const isOnCanvas = e.target.id === 'board';
+	  if (!isOnCanvas) hideContextMenu();
+	});
+
+// -------------------------------------------------------------
+// Custom DTools right-click context menu on the grid (Draw mode)
+// -------------------------------------------------------------
+(function(){
+  const Core = window.Core;
+  const canvas = document.getElementById('board');
+
+  if (canvas) {
+    canvas.addEventListener('contextmenu', (e) => {
+      // Only fire in draw mode
+      if (!Core || Core.mode !== 'draw') return;
+
+      e.preventDefault(); // Stop Windows Explorer / browser default menu
+
+      // Define menu items linked to DTools buttons
+      const items = [
+        { label: 'Delete',   action: () => document.getElementById('delete-selected')?.click() },
+        { label: 'Copy',     action: () => document.getElementById('copy-selected')?.click() },
+        { label: 'Paste',    action: () => document.getElementById('paste-selected')?.click() },
+        'divider',
+        { label: 'Select All', action: () => document.getElementById('select-all-btn')?.click() },
+        { label: 'Deselect', action: () => document.getElementById('deselect')?.click() },
+        'divider',
+        { label: 'Clear All',action: () => document.getElementById('clear')?.click() }
+      ];
+
+      // Use the existing context menu system
+      showContextMenu(e.clientX, e.clientY, items);
+    });
+  }
+})();
 
   // ============================================================
   // MENU TOGGLE HANDLER
@@ -296,7 +383,7 @@
     e.stopPropagation();
   });
 
-  document.addEventListener('click', (e) => {
+    document.addEventListener('click', (e) => {
     const dtools = document.getElementById('dtools');
     const menu = document.getElementById('menu');
     const dtoolsBtn = document.getElementById('dtools-toggle');
@@ -314,118 +401,149 @@
       }
     }
   });
-  
-  // ============================================================
-  // "+ Element ▼" overlay dropdown (floating submenu)
-  // FIXED: Prevent immediate close and handle clicks properly
-  // ============================================================
-  (function(){
-    const dropdownBtn = document.getElementById('points-list');
-    const dropdownContent = document.getElementById('points-dropdown');
 
-    if (dropdownBtn && dropdownContent) {
-      console.log('Dropdown elements found:', dropdownBtn, dropdownContent);
-      
-      const originalParent = dropdownContent.parentElement;
-      const originalNext = dropdownContent.nextSibling;
-      let isOpen = false;
+	// -------------------------------------------------------------
+	// "+ Element ▼" overlay dropdown (floating submenu)
+	// FIXED: Prevent immediate close and handle clicks properly
+	// -------------------------------------------------------------
+	(function(){
+	  const dropdownBtn = document.getElementById('points-list');
+	  const dropdownContent = document.getElementById('points-dropdown');
 
-      dropdownBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        console.log('Dropdown button clicked, isOpen:', isOpen);
+	  if (dropdownBtn && dropdownContent) {
+		console.log('Dropdown elements found:', dropdownBtn, dropdownContent);
+		
+		// Store original parent for restoration
+		const originalParent = dropdownContent.parentElement;
+		const originalNext = dropdownContent.nextSibling;
+		let isOpen = false;
 
-        if (isOpen) {
-          closeDropdown();
-          return;
-        }
+		dropdownBtn.addEventListener('click', (e) => {
+		  e.stopPropagation();
+		  console.log('Dropdown button clicked, isOpen:', isOpen);
 
-        const rect = dropdownBtn.getBoundingClientRect();
-        dropdownContent.style.position = 'fixed';
-        dropdownContent.style.left = rect.left + 'px';
-        dropdownContent.style.top = (rect.bottom + 4) + 'px';
-        dropdownContent.style.display = 'flex';
-        dropdownContent.style.flexDirection = 'column';
-        dropdownContent.style.zIndex = '10001';
-        dropdownContent.style.opacity = '1';
-        dropdownContent.style.transform = 'translateY(0)';
-        dropdownContent.classList.add('overlay-open');
-        isOpen = true;
+		  // Toggle close if already open
+		  if (isOpen) {
+			closeDropdown();
+			return;
+		  }
 
-        console.log('Dropdown opened, styles applied:', dropdownContent.style.cssText);
+		  // Position relative to button
+		  const rect = dropdownBtn.getBoundingClientRect();
+		  dropdownContent.style.position = 'fixed';
+		  dropdownContent.style.left = rect.left + 'px';
+		  dropdownContent.style.top = (rect.bottom + 4) + 'px';
+		  dropdownContent.style.display = 'flex';
+		  dropdownContent.style.flexDirection = 'column';
+		  dropdownContent.style.zIndex = '10001';
+		  dropdownContent.style.opacity = '1';
+		  dropdownContent.style.transform = 'translateY(0)';
+		  dropdownContent.classList.add('overlay-open');
+		  isOpen = true;
 
-        document.body.appendChild(dropdownContent);
+		  console.log('Dropdown opened, styles applied:', dropdownContent.style.cssText);
 
-        setTimeout(() => {
-          document.addEventListener('click', outsideClickHandler);
-        }, 100);
-      });
+		  // Append to body so it's not clipped by #dtools
+		  document.body.appendChild(dropdownContent);
 
-      dropdownContent.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-preset]');
-        if (!btn) return;
+		  // Set up close handler after a short delay
+		  setTimeout(() => {
+			document.addEventListener('click', outsideClickHandler);
+		  }, 100);
+		});
 
-        e.stopPropagation();
-        console.log('Preset clicked:', btn.dataset.preset);
-        
-        const Core = getCore();
-        const preset = btn.dataset.preset;
-        
-        const canvas = document.getElementById('board');
-        const rect = canvas.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const world = Core.screenToWorld(cx, cy);
-        const rc = Core.worldToRC(world.x, world.y);
+		// Handle clicks on dropdown buttons
+		dropdownContent.addEventListener('click', (e) => {
+		  const btn = e.target.closest('button[data-preset]');
+		  if (!btn) return;
 
-        Core.pushUndo(true);
+		  e.stopPropagation();
+		  console.log('Preset clicked:', btn.dataset.preset);
+		  
+		  const Core = getCore();
+		  const preset = btn.dataset.preset;
+		  
+		  // Get center of canvas
+		  const canvas = document.getElementById('board');
+		  const rect = canvas.getBoundingClientRect();
+		  const cx = rect.left + rect.width / 2;
+		  const cy = rect.top + rect.height / 2;
+		  const world = Core.screenToWorld(cx, cy);
+		  const rc = Core.worldToRC(world.x, world.y);
 
-        const config = window.ElementPresets ? window.ElementPresets[preset] : null;
-        
-        if (config) {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-          if (window.UI && window.UI.Toast) {
-            window.UI.Toast.success(`${config.label} added`);
-          }
-          Core.markDirty('items');
-          if (window.Draw) window.Draw.render();
-        }
+		  Core.pushUndo(true);
 
-        closeDropdown();
-      });
+		  // Add based on preset (with local images)
+		  if (preset === 'alliance') {
+			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+			  sizeW: 9, sizeH: 9, label: 'Alliance', color: '#4363d8',
+			  image: './images/alliance-center-s4.png'
+			});
+		  } else if (preset === 'lake') {
+			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+			  sizeW: 11, sizeH: 9, label: 'Lake S4', color: '#46f0f0',
+			  image: './images/lake-s4.png'
+			});
+		  } else if (preset === 'mine') {
+			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+			  sizeW: 1, sizeH: 1, label: 'Mine', color: '#9a6324',
+			  image: null  // No image for mine in your folder
+			});
+		  } else if (preset === 'mountain') {
+			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+			  sizeW: 17, sizeH: 18, label: 'Mountain', color: '#800000',
+			  image: './images/mountain-s4.png'
+			});
+		  } else if (preset === 'secret') {
+			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+			  sizeW: 3, sizeH: 3, label: 'Secret Task', color: '#f032e6',
+			  image: './images/secret-task.png'
+			});
+		  } else {
+			console.warn(`Unknown preset: ${preset}`);
+			return;
+		  }
 
-      function outsideClickHandler(e) {
-        if (!dropdownContent.contains(e.target) && e.target !== dropdownBtn) {
-          closeDropdown();
-        }
-      }
+		  window.UI.Toast.success(`${preset} added`);
+		  Core.markDirty('items');
+		  window.Draw.render();
+		  closeDropdown();
+		});
 
-      function closeDropdown() {
-        if (!isOpen) return;
-        
-        console.log('Closing dropdown');
-        document.removeEventListener('click', outsideClickHandler);
-        dropdownContent.classList.remove('overlay-open');
-        dropdownContent.style.position = '';
-        dropdownContent.style.left = '';
-        dropdownContent.style.top = '';
-        dropdownContent.style.display = 'none';
-        dropdownContent.style.zIndex = '';
-        dropdownContent.style.opacity = '';
-        dropdownContent.style.transform = '';
-        isOpen = false;
+		function outsideClickHandler(e) {
+		  if (!dropdownContent.contains(e.target) && e.target !== dropdownBtn) {
+			closeDropdown();
+		  }
+		}
 
-        if (originalParent) {
-          if (originalNext) {
-            originalParent.insertBefore(dropdownContent, originalNext);
-          } else {
-            originalParent.appendChild(dropdownContent);
-          }
-        }
-      }
-    } else {
-      console.error('Dropdown elements NOT found - check HTML IDs');
-    }
-  })();
+		function closeDropdown() {
+		  if (!isOpen) return;
+		  
+		  console.log('Closing dropdown');
+		  document.removeEventListener('click', outsideClickHandler);
+		  dropdownContent.classList.remove('overlay-open');
+		  dropdownContent.style.position = '';
+		  dropdownContent.style.left = '';
+		  dropdownContent.style.top = '';
+		  dropdownContent.style.display = 'none';
+		  dropdownContent.style.zIndex = '';
+		  dropdownContent.style.opacity = '';
+		  dropdownContent.style.transform = '';
+		  isOpen = false;
+
+		  // Restore to original position
+		  if (originalParent) {
+			if (originalNext) {
+			  originalParent.insertBefore(dropdownContent, originalNext);
+			} else {
+			  originalParent.appendChild(dropdownContent);
+			}
+		  }
+		}
+	  } else {
+		console.error('Dropdown elements NOT found - check HTML IDs');
+	  }
+	})();
 
   // ============================================================
   // COLOR PICKER (NATIVE)
@@ -648,7 +766,7 @@
       editingColor = null;
     });
   }
-  
+
   // ============================================================
   // KEYBOARD SHORTCUTS REGISTRATION
   // ============================================================
@@ -744,42 +862,69 @@
     setZoomPct(next, anchor);
   }, { passive: false });
   
-  // ============================================================
+ // ============================================================
   // SHOW ELEMENTS DROPDOWN AS FLYOUT (FOR CONTEXT MENU)
   // ============================================================
   UI.showElementsDropdownAt = function(x, y) {
     const Core = getCore();
-    hideContextMenu();
+    hideContextMenu(); // Close the main context menu first
     
-    const items = [];
+    const items = [
+      { label: 'Alliance Center (9×9)', preset: 'alliance' },
+      { label: 'Lake S4 (11×9)', preset: 'lake' },
+      { label: 'Mine (1×1)', preset: 'mine' },
+      { label: 'Mountain (17×18)', preset: 'mountain' },
+      { label: 'Secret Task (3×3)', preset: 'secret' }
+    ];
     
-    if (window.ElementPresets) {
-      for (const [key, config] of Object.entries(window.ElementPresets)) {
-        items.push({
-          icon: config.icon || '📍',
-          label: config.menuLabel || config.label,
-          action: () => {
-            const canvas = document.getElementById('board');
-            const rect = canvas.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const world = Core.screenToWorld(cx, cy);
-            const rc = Core.worldToRC(world.x, world.y);
+    const menuItems = items.map(item => ({
+      label: item.label,
+      action: () => {
+        // Get center of canvas
+        const canvas = document.getElementById('board');
+        const rect = canvas.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const world = Core.screenToWorld(cx, cy);
+        const rc = Core.worldToRC(world.x, world.y);
 
-            Core.pushUndo(true);
-            Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-            
-            if (window.UI && window.UI.Toast) {
-              window.UI.Toast.success(`${config.label} added`);
-            }
-            Core.markDirty('items');
-            if (window.Draw) window.Draw.render();
-          }
-        });
+        Core.pushUndo(true);
+
+        // Add based on preset (with local images)
+        if (item.preset === 'alliance') {
+          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+            sizeW: 9, sizeH: 9, label: 'Alliance', color: '#4363d8',
+            image: './images/alliance-center-s4.png'
+          });
+        } else if (item.preset === 'lake') {
+          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+            sizeW: 11, sizeH: 9, label: 'Lake S4', color: '#46f0f0',
+            image: './images/lake-s4.png'
+          });
+        } else if (item.preset === 'mine') {
+          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+            sizeW: 1, sizeH: 1, label: 'Mine', color: '#9a6324',
+            image: null
+          });
+        } else if (item.preset === 'mountain') {
+          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+            sizeW: 17, sizeH: 18, label: 'Mountain', color: '#800000',
+            image: './images/mountain-s4.png'
+          });
+        } else if (item.preset === 'secret') {
+          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
+            sizeW: 3, sizeH: 3, label: 'Secret Task', color: '#f032e6',
+            image: './images/secret-task.png'
+          });
+        }
+
+        window.UI.Toast.success(`${item.preset} added`);
+        Core.markDirty('items');
+        window.Draw.render();
       }
-    }
+    }));
     
-    showContextMenu(x, y, items);
+    showContextMenu(x, y, menuItems);
   };
 
   // ============================================================
@@ -789,6 +934,7 @@
   UI.Shortcuts = Shortcuts;
   UI.showContextMenu = showContextMenu;
   UI.hideContextMenu = hideContextMenu;
+  UI.showElementsDropdownAt = UI.showElementsDropdownAt; // <-- ADD THIS LINE
   
   window.UI = UI;
 })();
@@ -1339,7 +1485,7 @@ if (!window.UI) window.UI = {
       align(n, true, gap);
     };
   }
-  
+
   // ============================================================
   // CLEAR ALL
   // ============================================================
@@ -1489,89 +1635,62 @@ if (!window.UI) window.UI = {
     });
   }
 
-// ============================================================
-// EXPORT PNG
-// ============================================================
-if($('export-png')) {
-  $('export-png').onclick = () => {
-    const Core = getCore();
-    const src = Core.canvas;
-    const legendColors = window.UI.usedColors();
-    const legendLabels = legendColors.map(c => ({
-      color: c,
-      label: Core.legendLabels[c] || c
-    }));
+  // ============================================================
+  // EXPORT PNG
+  // ============================================================
+  if($('export-png')) {
+    $('export-png').onclick = () => {
+      const Core = getCore();
+      const src = Core.canvas;
+      const legendColors = window.UI.usedColors();
+      const legendLabels = legendColors.map(c => ({
+        color: c,
+        label: Core.legendLabels[c] || c
+      }));
 
-    const rowH = 28;
-    const pad = 20;
-    const headerH = legendLabels.length ? 30 : 0;
-    const legendHeight = legendLabels.length ? (headerH + legendLabels.length * rowH + pad) : 0;
+      const rowH = 24;
+      const pad = 10;
+      const headerH = legendLabels.length ? 24 : 0;
+      const legendHeight = legendLabels.length ? (headerH + legendLabels.length * rowH + pad) : 0;
+      const out = document.createElement('canvas');
+      out.width = src.width;
+      out.height = src.height + legendHeight;
+      const ctx = out.getContext('2d');
 
-    // Use actual canvas dimensions
-    const canvasWidth = src.width;
-    const canvasHeight = src.height;
-    
-    const out = document.createElement('canvas');
-    out.width = canvasWidth;
-    out.height = canvasHeight + legendHeight;
-    const ctx = out.getContext('2d');
-
-    try {
-      // Draw the source canvas (includes images!)
       ctx.drawImage(src, 0, 0);
 
-      // Draw legend
       if(legendLabels.length) {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const y0 = canvasHeight;
-        
-        // Legend background
+        const y0 = src.height;
         ctx.fillStyle = '#171c39';
         ctx.fillRect(0, y0, out.width, legendHeight);
-        
-        // Legend title
-        ctx.font = 'bold 18px sans-serif';
+        ctx.font = 'bold 16px sans-serif';
         ctx.textBaseline = 'top';
         ctx.fillStyle = '#fff';
-        ctx.fillText('Legend', 15, y0 + 8);
-        
-        // Legend items
-        ctx.font = '14px sans-serif';
+        ctx.fillText('Legend', 10, y0 + 4);
         ctx.textBaseline = 'middle';
+        ctx.font = '14px sans-serif';
         
         legendLabels.forEach((row, i) => {
-          const y = y0 + headerH + (i * rowH) + (rowH / 2);
-          
-          // Color swatch
+          const y = y0 + headerH + i * rowH + rowH / 2;
           ctx.fillStyle = row.color;
-          ctx.fillRect(15, y - 10, 20, 20);
+          ctx.fillRect(10, y - 8, 18, 18);
           ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(15, y - 10, 20, 20);
-          
-          // Label text
+          ctx.strokeRect(10, y - 8, 18, 18);
           ctx.fillStyle = '#fff';
-          ctx.fillText(row.label, 45, y);
+          ctx.fillText(row.label, 40, y);
         });
       }
 
-      // Export
-      const dataURL = out.toDataURL('image/png');
       const a = document.createElement('a');
       a.download = `map-snapshot-${Date.now()}.png`;
-      a.href = dataURL;
+      a.href = out.toDataURL('image/png');
       a.click();
       
-      window.UI.Toast.success('PNG exported with images!');
-      
-    } catch(err) {
-      console.error('Export error:', err);
-      window.UI.Toast.error('Export failed: ' + err.message);
-    }
-    
-    autoClose();
-  };
-}
+      window.UI.Toast.success('Image exported');
+      autoClose();
+    };
+  }
+
   // ============================================================
   // MODE SWITCHING (FIXED)
   // ============================================================
@@ -1604,12 +1723,12 @@ if($('export-png')) {
     if (window.Draw) window.Draw.render();
   };
 
-  document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mode-draw')?.addEventListener('click', () => setMode('draw'));
     document.getElementById('mode-select')?.addEventListener('click', () => setMode('select'));
     document.getElementById('mode-view')?.addEventListener('click', () => setMode('view'));
   });
   
-  window.UI = Object.assign(window.UI || {}, UI);
+window.UI = Object.assign(window.UI || {}, UI);
 
 })();
