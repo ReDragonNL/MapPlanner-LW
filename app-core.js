@@ -261,15 +261,9 @@
     const footer = document.querySelector('footer');
     const topH = top ? top.getBoundingClientRect().height : 0;
     const footH = footer ? footer.getBoundingClientRect().height : 0;
-    /*
-     * When computing the available canvas size, reduce the outer padding
-     * to increase the usable area and remove the extra 80px deduction.
-     * On wide screens this gives the board more breathing room without
-     * overflowing the viewport.
-     */
-    const pad = 16;
+    const pad = 32;
     const availW = window.innerWidth - 2 * pad;
-    const availH = window.innerHeight - topH - footH - 2 * pad;
+    const availH = window.innerHeight - topH - footH - 2 * pad - 80;
     const w = Math.min(availW, availH);
     Core.basePx = Math.max(320, Math.floor(w));
     
