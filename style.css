@@ -11,6 +11,8 @@
   --btn-b: #33407a;
   --accent: #00e5ff;
   --danger: #c62828;
+  /* Define footer height so we can reserve space easily */
+  --footer-h: 36px;
 }
 
 /* ============================================================ */
@@ -39,19 +41,19 @@ html, body {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  /* Align children to the start so the board hugs the left edge instead of centering */
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-start;
   width: 100%;
-  /* Reduce side padding and bottom padding to maximize workspace */
-  padding: 0 6px 10px;
-  /* Reserve space for the footer so it doesn’t overlap the board */
-  padding-bottom: calc(10px + 36px);
+  /* Reduce side padding and reserve space for the footer */
+  padding-top: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+  padding-bottom: calc(10px + var(--footer-h));
 }
 
 #board {
   display: block;
-  /* Remove horizontal centering margin so the board aligns with the layout padding */
+  /* Reduce margins and remove horizontal auto centering */
   margin: 10px 0;
   background: #2a2f45;
   border-radius: 8px;
@@ -71,7 +73,7 @@ html, body {
   margin-bottom: 12px;
   z-index: 30;
   width: 100%;
-  /* Allow the top bar to take up the full width of the viewport */
+  /* Allow the top bar to span the full width */
   max-width: none;
 }
 
@@ -166,6 +168,12 @@ html, body {
 .zoomrow .mode-row button:focus-visible {
   outline: 3px solid rgba(0,229,255,0.6);
   outline-offset: 1px;
+}
+
+/* Mobile mode select is hidden by default */
+/* Hide mobile mode selector by default */
+#mode-select-dropdown {
+  display: none;
 }
 
 /* ============================================================ */
@@ -682,19 +690,19 @@ html, body {
 /* ============================================================ */
 footer {
   flex-shrink: 0;
-  height: 36px;
+  height: var(--footer-h);
   background: var(--panel);
   border-top: 1px solid #2a315d;
   text-align: center;
   font-size: 12px;
   color: #888;
-  line-height: 36px;
-  /* Fix the footer to the bottom of the viewport and ensure it stays above other UI layers */
+  line-height: var(--footer-h);
+  /* Fix the footer to the bottom so it’s always visible */
   position: fixed;
   bottom: 0;
   left: 0;
-  z-index: 5000;
   width: 100%;
+  z-index: 5000;
 }
 
 /* ============================================================ */
@@ -841,14 +849,30 @@ body.light-theme kbd {
     gap: 8px;
     width: 100%;
   }
+  
   #zoom-slider {
     /* Allow slider to grow and shrink based on available space */
     width: auto;
     flex: 1 1 120px;
     max-width: 200px;
   }
+  
   .zoomrow .mode-row {
     margin-left: 8px;
+  }
+
+  /* Hide the individual mode buttons and show the dropdown on small screens */
+  .zoomrow .mode-row {
+    display: none;
+  }
+  #mode-select-dropdown {
+    display: inline-block;
+    background: var(--btn);
+    border: 1px solid var(--btn-b);
+    color: #fff;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 13px;
   }
   
   .menu {
