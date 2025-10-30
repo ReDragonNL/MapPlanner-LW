@@ -684,7 +684,7 @@ footer {
   color: #888;
   line-height: 36px;
   position: relative;
-  z-index: 10;
+  z-index: 5000;
   width: 100%;
 }
 
