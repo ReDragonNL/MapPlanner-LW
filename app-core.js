@@ -261,9 +261,15 @@
     const footer = document.querySelector('footer');
     const topH = top ? top.getBoundingClientRect().height : 0;
     const footH = footer ? footer.getBoundingClientRect().height : 0;
-    const pad = 32;
+    /*
+     * When computing the available canvas size, reduce the outer padding
+     * to increase the usable area and remove the extra 80px deduction.
+     * On wide screens this gives the board more breathing room without
+     * overflowing the viewport.
+     */
+    const pad = 16;
     const availW = window.innerWidth - 2 * pad;
-    const availH = window.innerHeight - topH - footH - 2 * pad - 80;
+    const availH = window.innerHeight - topH - footH - 2 * pad;
     const w = Math.min(availW, availH);
     Core.basePx = Math.max(320, Math.floor(w));
     
@@ -1228,25 +1234,6 @@ function handlePointerDown(e){
       // NEW: In draw mode, allow selecting and dragging if clicking inside an item (no lasso)
       const hit = hitItemAtRC(rc);
       if (hit) {
-        // --- DOUBLE-TAP EDITING FOR POINTS IN DRAW MODE ---
-        // If the user double-taps on a point (P) while still in draw mode,
-        // open the point edit modal.  This matches the behaviour in select
-        // mode so users don't need to switch modes to edit a preset or custom
-        // point.  A double-tap is defined as two taps within 300ms on the
-        // same item.
-        {
-          const nowTap = Date.now();
-          if(hit.type === Core.TYPES.P && nowTap - lastTapTime < 300 && lastTapId === hit.id) {
-            if(window.openPointModal) {
-              window.openPointModal(hit);
-            }
-            lastTapTime = 0;
-            lastTapId = null;
-            return;
-          }
-          lastTapTime = nowTap;
-          lastTapId = hit.id;
-        }
         // Selection update: modifiers toggle-add, otherwise single-pick
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
           if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
