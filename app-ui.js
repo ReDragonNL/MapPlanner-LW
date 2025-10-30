@@ -546,19 +546,8 @@ document.addEventListener('keydown', (e) => {
       for (const id of Core.selected) {
         const it = Core.items.find(x => x.id === id);
         if (!it) continue;
-        // For X and Y blocks, change the block color.
         if (it.type === Core.TYPES.X || it.type === Core.TYPES.Y) {
           it.color = color;
-          count++;
-          continue;
-        }
-        // For points (including custom presets like mountain), apply the color
-        // to both the primary and area colors so the fill updates. Without
-        // updating areaColor the change would not be visible because fill
-        // rectangles use areaColor first.
-        if (it.type === Core.TYPES.P) {
-          it.color = color;
-          it.areaColor = color;
           count++;
         }
       }
@@ -1711,6 +1700,15 @@ if (!window.UI) window.UI = {
     document.getElementById('mode-draw')?.addEventListener('click', () => setMode('draw'));
     document.getElementById('mode-select')?.addEventListener('click', () => setMode('select'));
     document.getElementById('mode-view')?.addEventListener('click', () => setMode('view'));
+
+    // Mobile mode selector drop-down
+    const modeSelect = document.getElementById('mode-select-dropdown');
+    if (modeSelect) {
+      modeSelect.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (val) setMode(val);
+      });
+    }
   });
   
 window.UI = Object.assign(window.UI || {}, UI);
