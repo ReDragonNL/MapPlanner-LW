@@ -936,10 +936,10 @@ function hexToRgba(hex, alpha) {
       if (it.type === TYPES.P) {
         const fillAlpha = (Number.isFinite(it.fillAlpha) ? it.fillAlpha : 100) / 100;
 
-        if (fillAlpha > 0) {
+  	  if (fillAlpha > 0) {
           ctx.save();
           ctx.globalAlpha = fillAlpha;
-          ctx.fillStyle = it.areaColor || it.color || FILL.P;
+          ctx.fillStyle = it.color || FILL.P;
           ctx.fillRect(x, y, w, h);
           ctx.restore();
         }
