@@ -1,6 +1,7 @@
 // ============================================================
 // CORE ENGINE - MapPlanner
 // Main application state, grid management, and core functions
+// FIXED: Context menu logic, error handling, null checks
 // ============================================================
 
 (function(){
@@ -24,8 +25,8 @@
   // DOM HELPERS
   // ============================================================
   Core.$ = id => document.getElementById(id);
-  Core.canvas = Core.$('board');
-  Core.ctx = Core.canvas ? Core.canvas.getContext('2d') : null;
+  Core.canvas = null;
+  Core.ctx = null;
 
   // ============================================================
   // APPLICATION STATE
@@ -236,1297 +237,705 @@
   };
 
   // ============================================================
-  // CANVAS TRANSFORM MANAGEMENT
-  // ============================================================
-  Core.setTransform = function() {
-    Core.ctx.setTransform(
-      Core.dpr * Core.zoom, 0, 0, 
-      Core.dpr * Core.zoom, 
-      Core.dpr * Core.pan.x, 
-      Core.dpr * Core.pan.y
-    );
-  };
-
-  Core.clearCanvas = function() {
-    Core.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    Core.ctx.clearRect(0, 0, Core.canvas.width, Core.canvas.height);
-  };
-
-  // ============================================================
-  // CANVAS RESIZING & INITIALIZATION
-  // ============================================================
-  Core.resizeCanvas = function() {
-    Core.dpr = window.devicePixelRatio || 1;
-    const top = document.querySelector('.topbar');
-    const footer = document.querySelector('footer');
-    const topH = top ? top.getBoundingClientRect().height : 0;
-    const footH = footer ? footer.getBoundingClientRect().height : 0;
-    const pad = 32;
-    const availW = window.innerWidth - 2 * pad;
-    const availH = window.innerHeight - topH - footH - 2 * pad - 80;
-    const w = Math.min(availW, availH);
-    Core.basePx = Math.max(320, Math.floor(w));
-    
-    Core.canvas.width = Math.round(Core.basePx * Core.dpr);
-    Core.canvas.height = Math.round(Core.basePx * Core.dpr);
-    Core.canvas.style.width = Core.basePx + 'px';
-    Core.canvas.style.height = Core.basePx + 'px';
-
-    const s = Core.cell();
-    const minCellPx = 12;
-    const desiredZoom = Math.max(1, minCellPx / s);
-    
-    if(!Core._initView) {
-      Core.zoom = desiredZoom;
-      Core.pan.x = 0;
-      Core.pan.y = 0;
-      Core._initView = true;
-    }
-
-    const slider = Core.$('zoom-slider');
-    const label  = Core.$('zoom-label');
-
-    if (slider) {
-      slider.value = String(Math.round(Core.zoom * 100));
-      if (Core.getDynamicMaxZoom) {
-        slider.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
-      }
-    }
-
-    if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
-
-    Core.markDirty('view');
-    if (window.Draw) window.Draw.render();
-  };
-
-  // ============================================================
-  // COORDINATE TRANSFORMATIONS
-  // ============================================================
-  Core.screenToWorld = function(clientX, clientY) {
-    const rect = Core.canvas.getBoundingClientRect();
-    const xCSS = clientX - rect.left;
-    const yCSS = clientY - rect.top;
-    const xDev = xCSS * (Core.canvas.width / rect.width);
-    const yDev = yCSS * (Core.canvas.height / rect.height);
-    const xW = (xDev / Core.dpr - Core.pan.x) / Core.zoom;
-    const yW = (yDev / Core.dpr - Core.pan.y) / Core.zoom;
-    return {x: xW, y: yW};
-  };
-
-  Core.worldToRC = function(xW, yW) {
-    const s = Core.cell();
-    return {r: Math.floor(yW / s), c: Math.floor(xW / s)};
-  };
-
-  Core.worldToCanvas = function(xW, yW) {
-    const x = xW * Core.zoom + Core.pan.x;
-    const y = yW * Core.zoom + Core.pan.y;
-    return { x, y };
-  };
-
-  Core.evtRC = function(e) {
-    const pt = Core.screenToWorld(e.clientX, e.clientY);
-    Core._mouseW = pt;
-    return Core.worldToRC(pt.x, pt.y);
-  };
-
-  // ============================================================
   // COLLISION DETECTION
   // ============================================================
-  Core.overlap = function(a, b) {
-    const aSizeW = a.sizeW || Core.getSize(a);
-    const aSizeH = a.sizeH || Core.getSize(a);
-    const bSizeW = b.sizeW || Core.getSize(b);
-    const bSizeH = b.sizeH || Core.getSize(b);
+  Core.isOccupied = function(row, col, size, excludeId = null) {
+    const candidates = Core.spatialIndex.query(row, col);
     
-    return !(a.row + aSizeH <= b.row || 
-             b.row + bSizeH <= a.row || 
-             a.col + aSizeW <= b.col || 
-             b.col + bSizeW <= a.col);
-  };
-
-  Core.collides = function(candidate, ignoreSet) {
-    const candSizeW = candidate.sizeW || Core.getSize(candidate);
-    const candSizeH = candidate.sizeH || Core.getSize(candidate);
-    
-    const candidates = Core.spatialIndex.query(candidate.row, candidate.col);
-    
-    const maxRow = candidate.row + candSizeH - 1;
-    const maxCol = candidate.col + candSizeW - 1;
-    const nearbyItems = new Set([
-      ...candidates,
-      ...Core.spatialIndex.query(maxRow, candidate.col),
-      ...Core.spatialIndex.query(candidate.row, maxCol),
-      ...Core.spatialIndex.query(maxRow, maxCol)
-    ]);
-    
-    for(const it of nearbyItems) {
-      if(ignoreSet && ignoreSet.has(it.id)) continue;
-      if(it.id === candidate.id) continue;
-      if(Core.overlap(candidate, it)) return true;
+    for(const it of candidates) {
+      if(excludeId !== null && it.id === excludeId) continue;
+      
+      const otherSize = Core.getSize(it);
+      const otherW = (it.sizeW !== undefined) ? it.sizeW : otherSize;
+      const otherH = (it.sizeH !== undefined) ? it.sizeH : otherSize;
+      
+      const thisW = (typeof size === 'object' && size.w !== undefined) ? size.w : size;
+      const thisH = (typeof size === 'object' && size.h !== undefined) ? size.h : size;
+      
+      const overlap = !(
+        row >= it.row + otherH ||
+        row + thisH <= it.row ||
+        col >= it.col + otherW ||
+        col + thisW <= it.col
+      );
+      
+      if(overlap) return true;
     }
     return false;
   };
 
   // ============================================================
-  // ITEM PLACEMENT FUNCTIONS
+  // FIND FREE SPACE NEAR TARGET
   // ============================================================
-  Core.placeX = function(rc) {
-    const baseR = rc.r - 1;
-    const baseC = rc.c - 1;
-    const size = Core.SIZE.X;
-    const obj = {
-      id: Core.idSeq++,
-      type: Core.TYPES.X,
-      row: Math.max(0, Math.min(Core.GRID - size, baseR)),
-      col: Math.max(0, Math.min(Core.GRID - size, baseC))
-    };
+  Core.findFree = function(targetR, targetC, size) {
+    const w = (typeof size === 'object' && size.w !== undefined) ? size.w : size;
+    const h = (typeof size === 'object' && size.h !== undefined) ? size.h : size;
     
-    if(!Core.collides(obj)) {
-      Core.items.push(obj);
-      Core.markDirty('items');
-      if(window.Draw) window.Draw.render();
-      return obj.id;
-    } else {
-      Core.idSeq--;
-      return null;
-    }
-  };
-
-  Core.addPoint = function(row, col, opts = {}) {
-    const sizeW = opts.sizeW || Math.max(1, Math.min(Core.GRID, Number(opts.size) || Core.SIZE.P));
-    const sizeH = opts.sizeH || Math.max(1, Math.min(Core.GRID, Number(opts.size) || Core.SIZE.P));
-    
-    const obj = {
-      id: Core.idSeq++,
-      type: Core.TYPES.P,
-      row: Math.max(0, Math.min(Core.GRID - sizeH, row)),
-      col: Math.max(0, Math.min(Core.GRID - sizeW, col)),
-      sizeW: sizeW,
-      sizeH: sizeH,
-      area: Math.max(0, Math.min(Core.GRID, Number(opts.area) || 12)),
-      color: opts.color || Core.FILL.P,
-      areaColor: opts.areaColor || (opts.color || Core.FILL.P),
-      glow: opts.glow !== undefined ? !!opts.glow : true,
-      areaAlpha: Number.isFinite(opts.areaAlpha) ? opts.areaAlpha : 22,
-      label: (opts.label ?? 'P') + '',
-      image: opts.image || null,
-      locked: !!opts.locked,
-      fillAlpha: Number.isFinite(opts.fillAlpha) ? opts.fillAlpha : 100,
-      borderColor: opts.borderColor || '#000000',
-      borderAlpha: Number.isFinite(opts.borderAlpha) ? opts.borderAlpha : 100,
-      borderWidth: Number.isFinite(opts.borderWidth) ? opts.borderWidth : 1,
-      areaBorderColor: opts.areaBorderColor || (opts.areaColor || Core.FILL.P),
-      areaBorderAlpha: Number.isFinite(opts.areaBorderAlpha) ? opts.areaBorderAlpha : 100,
-      areaBorderWidth: Number.isFinite(opts.areaBorderWidth) ? opts.areaBorderWidth : 2
-    };
-    
-    if(Core.collides(obj)) {
-      let near = Core.nearestFreeCell(obj.row, obj.col, true, sizeW, sizeH);
-      if(!near) near = Core.nearestFreeCell(obj.row, obj.col, false, sizeW, sizeH);
-      
-      if(near) {
-        obj.row = near.row;
-        obj.col = near.col;
-        
-        if(Core.collides(obj)) {
-          Core.idSeq--;
-          console.warn('Could not find free space for point');
-          return null;
-        }
-      } else {
-        Core.idSeq--;
-        console.warn('Could not find free space for point');
-        return null;
-      }
+    if(!Core.isOccupied(targetR, targetC, {w, h})) {
+      return {r: targetR, c: targetC};
     }
     
-    Core.items.push(obj);
-    Core.markDirty('items');
-    if(window.Draw) window.Draw.render();
-    return obj.id;
-  };
-
-  // ============================================================
-  // HIT DETECTION
-  // ============================================================
-  Core.hitAtRC = function(rc) {
-    const candidates = Core.spatialIndex.query(rc.r, rc.c);
-    
-    for(let i = candidates.length - 1; i >= 0; i--) {
-      const it = candidates[i];
-      const sz = Core.getSize(it);
-      if(rc.r >= it.row && rc.r < it.row + sz && 
-         rc.c >= it.col && rc.c < it.col + sz) {
-        return it;
-      }
-    }
-    return null;
-  };
-
-  // ============================================================
-  // GRID SIZE MANAGEMENT (FIXED)
-  // ============================================================
-  Core.setGridSize = function(n, opts) {
-    const newGrid = Math.max(20, Math.min(2000, n | 0));
-    if (newGrid === Core.GRID) return;
-
-    if (opts && opts.scale) {
-      const oldGrid = Core.GRID;
-      const scale = newGrid / oldGrid;
-      Core.items.forEach(it => {
-        it.row = Math.round(it.row * scale);
-        it.col = Math.round(it.col * scale);
-        if (it.type === Core.TYPES.P) {
-          if (Number.isFinite(it.size)) it.size = Math.max(1, Math.round(it.size * scale));
-          if (Number.isFinite(it.area)) it.area = Math.max(0, Math.round(it.area * scale));
-        }
-      });
-    }
-
-    Core.GRID = newGrid;
-    Core._initView = false;
-    Core.markDirty('items');
-    Core.markDirty('view');
-    Core.resizeCanvas();
-    Core.fitView();
-  };
-
-  // ============================================================
-  // VIEW MANAGEMENT
-  // ============================================================
-  Core.getDrawingCenter = function() {
-    if (!Core.items.length) return { x: Core.basePx / 2, y: Core.basePx / 2 };
-
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
-    for (const it of Core.items) {
-      const s = Core.getSize(it);
-      minR = Math.min(minR, it.row);
-      minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
-    }
-
-    const s = Core.cell();
-    const worldCenterX = ((minC + maxC) / 2) * s;
-    const worldCenterY = ((minR + maxR) / 2) * s;
-
-    return { 
-      x: worldCenterX * Core.zoom + Core.pan.x,
-      y: worldCenterY * Core.zoom + Core.pan.y
-    };
-  };
-
-  Core.fitView = function() {
-    if(!Core.items.length) {
-      Core.pan.x = 0;
-      Core.pan.y = 0;
-      Core.zoom = 1;
-      Core.markDirty('view');
-      if(window.Draw) window.Draw.render();
-      return;
-    }
-	
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
-    
-    for(const it of Core.items) {
-      const s = Core.getSize(it);
-      minR = Math.min(minR, it.row);
-      minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
-    }
-    
-    const marginR = Math.ceil((maxR - minR) * 0.05) + 1;
-    const marginC = Math.ceil((maxC - minC) * 0.05) + 1;
-    minR = Math.max(0, minR - marginR);
-    minC = Math.max(0, minC - marginC);
-    maxR = Math.min(Core.GRID, maxR + marginR);
-    maxC = Math.min(Core.GRID, maxC + marginC);
-
-    const s = Core.cell();
-    const boxW = (maxC - minC) * s;
-    const boxH = (maxR - minR) * s;
-    const availPx = Core.basePx;
-
-    const targetZoom = Math.min(availPx / boxW, availPx / boxH);
-    const centerX = ((minC + maxC) / 2) * s;
-    const centerY = ((minR + maxR) / 2) * s;
-    
-    Core.pan.x = (availPx / 2) - targetZoom * centerX;
-    Core.pan.y = (availPx / 2) - targetZoom * centerY;
-    Core.zoom = targetZoom;
-
-    Core.markDirty('view');
-    if(window.Draw) window.Draw.render();
-  };
-
-  // ============================================================
-  // PAN CLAMPING (KEEP VIEW INSIDE VISIBLE AREA)
-  // ============================================================
-  Core.clampPan = function () {
-    const s = Core.cell();
-    const worldW = Core.GRID * s * Core.zoom;
-    const worldH = Core.GRID * s * Core.zoom;
-    const limit = Core.basePx;
-
-    Core.pan.x = Math.min(limit * 0.2, Math.max(limit - worldW * 1.2, Core.pan.x));
-    Core.pan.y = Math.min(limit * 0.2, Math.max(limit - worldH * 1.2, Core.pan.y));
-  };
-
-  Core.centerView = function() {
-    if(!Core.items.length) {
-      Core.pan.x = 0;
-      Core.pan.y = 0;
-      Core.markDirty('view');
-      if(window.Draw) window.Draw.render();
-      return;
-    }
-    
-    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
-    
-    for(const it of Core.items) {
-      const s = Core.getSize(it);
-      minR = Math.min(minR, it.row);
-      minC = Math.min(minC, it.col);
-      maxR = Math.max(maxR, it.row + s);
-      maxC = Math.max(maxC, it.col + s);
-    }
-    
-    minR = Math.max(0, minR - 1);
-    minC = Math.max(0, minC - 1);
-    maxR = Math.min(Core.GRID, maxR + 1);
-    maxC = Math.min(Core.GRID, maxC + 1);
-
-    const s = Core.cell();
-    const centerX = ((minC + maxC) / 2) * s;
-    const centerY = ((minR + maxR) / 2) * s;
-
-    const availPx = Core.basePx;
-    Core.pan.x = (availPx / 2) - Core.zoom * centerX;
-    Core.pan.y = (availPx / 2) - Core.zoom * centerY;
-
-    Core.markDirty('view');
-    if(window.Draw) window.Draw.render();
-  };
-
-  // ============================================================
-  // SAFE ITEM MOVEMENT
-  // ============================================================
-  Core.moveItemSafe = function(it, newRow, newCol) {
-    const oldR = it.row, oldC = it.col;
-    it.row = newRow;
-    it.col = newCol;
-    
-    const ignoreSet = new Set([it.id]);
-    if(Core.collides(it, ignoreSet)) {
-      it.row = oldR;
-      it.col = oldC;
-      return false;
-    }
-    
-    Core.markDirty('items');
-    return true;
-  };
-
-  // ============================================================
-  // FIND NEAREST FREE CELL
-  // ============================================================
-  Core.nearestFreeCell = function(row, col, visibleOnly, itemWidth = 1, itemHeight = 1) {
-    const maxRadius = Core.GRID;
-    const s = Core.cell();
-    const viewX1 = -Core.pan.x / Core.zoom / Core.dpr;
-    const viewY1 = -Core.pan.y / Core.zoom / Core.dpr;
-    const viewX2 = viewX1 + (Core.canvas.width / Core.dpr) / Core.zoom;
-    const viewY2 = viewY1 + (Core.canvas.height / Core.dpr) / Core.zoom;
-    
-    function isVisible(r, c) {
-      return (r * s >= viewY1 && r * s <= viewY2 && c * s >= viewX1 && c * s <= viewX2);
-    }
-    
-    function isFree(r, c) {
-      if(r < 0 || c < 0 || r + itemHeight > Core.GRID || c + itemWidth > Core.GRID) {
-        return false;
-      }
-      
-      for(const it of Core.items) {
-        const itW = it.sizeW || Core.getSize(it);
-        const itH = it.sizeH || Core.getSize(it);
-        
-        if(!(r + itemHeight <= it.row || 
-             it.row + itH <= r || 
-             c + itemWidth <= it.col || 
-             it.col + itW <= c)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    
-    for(let rad = 0; rad < maxRadius; rad++) {
-      for(let dr = -rad; dr <= rad; dr++) {
-        for(let dc = -rad; dc <= rad; dc++) {
-          if(Math.abs(dr) !== rad && Math.abs(dc) !== rad) continue;
-          const nr = row + dr;
-          const nc = col + dc;
-          
-          if(isFree(nr, nc)) {
-            if(!visibleOnly || isVisible(nr, nc)) {
-              return {row: nr, col: nc};
+    for(let radius = 1; radius <= 30; radius++) {
+      const tests = [];
+      for(let dr = -radius; dr <= radius; dr++) {
+        for(let dc = -radius; dc <= radius; dc++) {
+          if(Math.max(Math.abs(dr), Math.abs(dc)) === radius) {
+            const r = targetR + dr;
+            const c = targetC + dc;
+            if(r >= 0 && r + h <= Core.GRID && c >= 0 && c + w <= Core.GRID) {
+              tests.push({r, c, dist: dr * dr + dc * dc});
             }
           }
         }
       }
+      
+      tests.sort((a, b) => a.dist - b.dist);
+      
+      for(const test of tests) {
+        if(!Core.isOccupied(test.r, test.c, {w, h})) {
+          return {r: test.r, c: test.c};
+        }
+      }
     }
     
     return null;
   };
 
   // ============================================================
-  // EXPORT TO GLOBAL SCOPE
+  // ADD BLOCKS (X/Y)
   // ============================================================
-  window.Core = Core;
+  Core.addBlock = function(type, row, col, color = null) {
+    const size = Core.SIZE[type];
+    if(!size) return null;
+    
+    const free = Core.findFree(row, col, size);
+    if(!free) return null;
+    
+    const item = {
+      id: Core.idSeq++,
+      type: type,
+      row: free.r,
+      col: free.c,
+      size: size,
+      color: color || Core.FILL[type],
+      order: 0
+    };
+    
+    Core.items.push(item);
+    Core.renumber();
+    Core.markDirty('items');
+    Core.markDirty('legend');
+    
+    return item;
+  };
 
   // ============================================================
-  // GLOBAL ZOOM FUNCTION
+  // ADD POINT (P) WITH CUSTOM CONFIG
   // ============================================================
-  window.setZoomPct = function(pct, anchor) {
-    const Core = window.Core;
-    if (!Core || !Core.canvas) return;
-
-    const dynamicMax = Core.getDynamicMaxZoom();
-    const newZoom = Math.max(0.4, Math.min(dynamicMax, pct / 100));
-
-    const rect = Core.canvas.getBoundingClientRect();
-    const clientX = rect.left + anchor.x;
-    const clientY = rect.top + anchor.y;
-    const worldPt = Core.screenToWorld(clientX, clientY);
-
-    Core.zoom = newZoom;
-    Core.pan.x = anchor.x - worldPt.x * Core.zoom;
-    Core.pan.y = anchor.y - worldPt.y * Core.zoom;
-
-    const slider = document.getElementById('zoom-slider');
-    const label = document.getElementById('zoom-label');
-    if (slider) {
-      slider.value = String(Math.round(Core.zoom * 100));
-      slider.max = String(Math.round(dynamicMax * 100));
+  Core.addPoint = function(row, col, config = {}) {
+    const sizeW = config.sizeW || config.size || Core.SIZE.P;
+    const sizeH = config.sizeH || config.size || Core.SIZE.P;
+    
+    const free = Core.findFree(row, col, {w: sizeW, h: sizeH});
+    if(!free) {
+      console.warn('No free space found for point');
+      return null;
     }
-    if (label) label.textContent = Math.round(Core.zoom * 100) + '%';
+    
+    const item = {
+      id: Core.idSeq++,
+      type: Core.TYPES.P,
+      row: free.r,
+      col: free.c,
+      sizeW: sizeW,
+      sizeH: sizeH,
+      label: config.label || '',
+      color: config.color || Core.FILL.P,
+      image: config.image || null,
+      area: config.area || 0,
+      locked: false,
+      glow: config.glow !== undefined ? config.glow : false,
+      
+      fillAlpha: config.fillAlpha !== undefined ? config.fillAlpha : 100,
+      borderAlpha: config.borderAlpha !== undefined ? config.borderAlpha : 100,
+      borderWidth: config.borderWidth !== undefined ? config.borderWidth : 2,
+      borderColor: config.borderColor || '#000000',
+      
+      areaAlpha: config.areaAlpha !== undefined ? config.areaAlpha : 30,
+      areaColor: config.areaColor || config.color || Core.FILL.P,
+      areaBorderAlpha: config.areaBorderAlpha !== undefined ? config.areaBorderAlpha : 100,
+      areaBorderWidth: config.areaBorderWidth !== undefined ? config.areaBorderWidth : 2
+    };
+    
+    Core.items.push(item);
+    Core.markDirty('items');
+    Core.markDirty('legend');
+    
+    return item;
+  };
 
+  // ============================================================
+  // DELETE ITEM
+  // ============================================================
+  Core.deleteItem = function(id) {
+    const idx = Core.items.findIndex(it => it.id === id);
+    if(idx >= 0) {
+      Core.items.splice(idx, 1);
+      Core.selected.delete(id);
+      Core.renumber();
+      Core.markDirty('items');
+      Core.markDirty('legend');
+      return true;
+    }
+    return false;
+  };
+
+  // ============================================================
+  // MOVE ITEM
+  // ============================================================
+  Core.moveItem = function(id, newRow, newCol) {
+    const it = Core.items.find(x => x.id === id);
+    if(!it) return false;
+    
+    if(it.locked) return false;
+    
+    const sizeW = it.sizeW !== undefined ? it.sizeW : Core.getSize(it);
+    const sizeH = it.sizeH !== undefined ? it.sizeH : Core.getSize(it);
+    
+    if(newRow < 0 || newRow + sizeH > Core.GRID || 
+       newCol < 0 || newCol + sizeW > Core.GRID) {
+      return false;
+    }
+    
+    if(Core.isOccupied(newRow, newCol, {w: sizeW, h: sizeH}, id)) {
+      return false;
+    }
+    
+    it.row = newRow;
+    it.col = newCol;
+    
+    Core.renumber();
+    Core.markDirty('items');
+    
+    return true;
+  };
+
+  // ============================================================
+  // COPY/PASTE
+  // ============================================================
+  Core.copySelected = function() {
+    Core.clipboard = Array.from(Core.selected).map(id => {
+      const it = Core.items.find(x => x.id === id);
+      return it ? JSON.parse(JSON.stringify(it)) : null;
+    }).filter(Boolean);
+    
+    return Core.clipboard.length;
+  };
+
+  Core.pasteClipboard = function(offsetR = 2, offsetC = 2) {
+    if(!Core.clipboard.length) return 0;
+    
+    const minR = Math.min(...Core.clipboard.map(it => it.row));
+    const minC = Math.min(...Core.clipboard.map(it => it.col));
+    
+    Core.selected.clear();
+    let pasted = 0;
+    
+    for(const orig of Core.clipboard) {
+      const relR = orig.row - minR;
+      const relC = orig.col - minC;
+      const newR = minR + offsetR + relR;
+      const newC = minC + offsetC + relC;
+      
+      const sizeW = orig.sizeW !== undefined ? orig.sizeW : Core.getSize(orig);
+      const sizeH = orig.sizeH !== undefined ? orig.sizeH : Core.getSize(orig);
+      
+      const free = Core.findFree(newR, newC, {w: sizeW, h: sizeH});
+      if(!free) continue;
+      
+      const newItem = JSON.parse(JSON.stringify(orig));
+      newItem.id = Core.idSeq++;
+      newItem.row = free.r;
+      newItem.col = free.c;
+      
+      Core.items.push(newItem);
+      Core.selected.add(newItem.id);
+      pasted++;
+    }
+    
+    Core.renumber();
+    Core.markDirty('items');
+    
+    return pasted;
+  };
+
+  // ============================================================
+  // GRID SIZE SETTER
+  // ============================================================
+  Core.setGridSize = function(newSize, opts = {}) {
+    const oldGrid = Core.GRID;
+    Core.GRID = Math.max(20, Math.min(newSize, 2000));
+    
+    if(opts.scale && oldGrid > 0 && Core.GRID !== oldGrid) {
+      const ratio = Core.GRID / oldGrid;
+      for(const it of Core.items) {
+        it.row = Math.round(it.row * ratio);
+        it.col = Math.round(it.col * ratio);
+        if(it.size) it.size = Math.round(it.size * ratio);
+        if(it.sizeW) it.sizeW = Math.round(it.sizeW * ratio);
+        if(it.sizeH) it.sizeH = Math.round(it.sizeH * ratio);
+      }
+    }
+    
+    Core.markDirty('items');
     Core.markDirty('view');
+    Core.resizeCanvas();
+  };
+
+  // ============================================================
+  // CANVAS RESIZE & DPR
+  // ============================================================
+  Core.resizeCanvas = function() {
+    if(!Core.canvas) {
+      Core.canvas = Core.$('board');
+      if(Core.canvas) {
+        Core.ctx = Core.canvas.getContext('2d');
+      }
+    }
+    
+    if(!Core.canvas || !Core.ctx) return;
+    
+    Core.dpr = window.devicePixelRatio || 1;
+    const cssW = Core.basePx;
+    const cssH = Core.basePx;
+    
+    Core.canvas.style.width = cssW + 'px';
+    Core.canvas.style.height = cssH + 'px';
+    Core.canvas.width = cssW * Core.dpr;
+    Core.canvas.height = cssH * Core.dpr;
+    
+    Core.ctx.scale(Core.dpr, Core.dpr);
+    
+    Core.markDirty('view');
+    Core.markDirty('items');
+    if(window.Draw && window.Draw.render) {
+      window.Draw.render();
+    }
+  };
+
+  // ============================================================
+  // COORDINATE CONVERSIONS
+  // ============================================================
+  Core.evtRC = function(e) {
+    const world = Core.screenToWorld(e.clientX, e.clientY);
+    return Core.worldToRC(world.x, world.y);
+  };
+
+  Core.worldToRC = function(x, y) {
+    const s = Core.cell();
+    return {
+      r: Math.floor(y / s),
+      c: Math.floor(x / s)
+    };
+  };
+
+  Core.screenToWorld = function(clientX, clientY) {
+    if(!Core.canvas) return {x: 0, y: 0};
+    
+    const rect = Core.canvas.getBoundingClientRect();
+    const cssX = clientX - rect.left;
+    const cssY = clientY - rect.top;
+    
+    const worldX = (cssX - Core.pan.x) / Core.zoom;
+    const worldY = (cssY - Core.pan.y) / Core.zoom;
+    
+    return {x: worldX, y: worldY};
+  };
+
+  // ============================================================
+  // PAN CLAMPING
+  // ============================================================
+  Core.clampPan = function() {
+    if(!Core.canvas) return;
+    
+    const rect = Core.canvas.getBoundingClientRect();
+    const worldW = Core.basePx / Core.zoom;
+    const worldH = Core.basePx / Core.zoom;
+    
+    const margin = 100;
+    const maxPanX = rect.width - worldW * Core.zoom + margin;
+    const maxPanY = rect.height - worldH * Core.zoom + margin;
+    
+    Core.pan.x = Math.max(-margin, Math.min(maxPanX, Core.pan.x));
+    Core.pan.y = Math.max(-margin, Math.min(maxPanY, Core.pan.y));
+  };
+
+  // ============================================================
+  // FIT VIEW
+  // ============================================================
+  Core.fitView = function() {
+    if(!Core.canvas || Core.items.length === 0) {
+      Core.zoom = 1;
+      Core.pan = {x: 0, y: 0};
+      Core.markDirty('view');
+      if(window.Draw) window.Draw.render();
+      return;
+    }
+    
+    const s = Core.cell();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    for(const it of Core.items) {
+      const sizeW = it.sizeW !== undefined ? it.sizeW : Core.getSize(it);
+      const sizeH = it.sizeH !== undefined ? it.sizeH : Core.getSize(it);
+      
+      const x1 = it.col * s;
+      const y1 = it.row * s;
+      const x2 = (it.col + sizeW) * s;
+      const y2 = (it.row + sizeH) * s;
+      
+      minX = Math.min(minX, x1);
+      minY = Math.min(minY, y1);
+      maxX = Math.max(maxX, x2);
+      maxY = Math.max(maxY, y2);
+    }
+    
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+    const rect = Core.canvas.getBoundingClientRect();
+    
+    const pad = 40;
+    const zoomX = (rect.width - pad * 2) / contentW;
+    const zoomY = (rect.height - pad * 2) / contentH;
+    Core.zoom = Math.min(zoomX, zoomY, Core.getDynamicMaxZoom());
+    Core.zoom = Math.max(0.4, Core.zoom);
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    Core.pan.x = rect.width / 2 - centerX * Core.zoom;
+    Core.pan.y = rect.height / 2 - centerY * Core.zoom;
+    
     Core.clampPan();
-    if (window.Draw) window.Draw.render();
-  };
-})();
-
-// ============================================================
-// DRAW ENGINE - Rendering System
-// ============================================================
-function hexToRgba(hex, alpha) {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!m) return hex;
-  const r = parseInt(m[1], 16);
-  const g = parseInt(m[2], 16);
-  const b = parseInt(m[3], 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-(function(){
-  const Draw = {};
-  
-  const renderCache = {
-    cellSize: null,
-    gridSize: null,
-    imageCache: {},
-    lastZoom: null,
-    lastPan: null,
-    gridPattern: null,
-    needsFullRedraw: true
+    Core.markDirty('view');
+    if(window.Draw) window.Draw.render();
+    
+    Core._initView = true;
   };
 
-  let renderRequested = false;
-  let lastRenderTime = 0;
-  const minFrameTime = 1000 / 60;
+  // ============================================================
+  // GESTURE TRACKING & HANDLERS
+  // ============================================================
+  const Gestures = {
+    pointers: new Map(),
+    state: 'IDLE',
+    dragData: null,
+    lastMidCSS: null,
+    pinchData: null,
+    _renderScheduled: false
+  };
+
+  const GestureState = {
+    IDLE: 'IDLE',
+    DRAG: 'DRAG',
+    PAINT: 'PAINT',
+    LASSO: 'LASSO',
+    PINCH: 'PINCH',
+    PAN: 'PAN'
+  };
+
+  function getCanvas() {
+    return Core.canvas || Core.$('board');
+  }
 
   function getCore() {
     return window.Core;
   }
 
-  // ============================================================
-  // GRID DRAWING
-  // ============================================================
-  function drawGrid() {
-    const Core = getCore();
-    const {ctx, cell, GRID} = Core;
-    const s = cell();
+  function hitItemAtRC(rc) {
+    if(!rc) return null;
     
-    if(renderCache.cellSize !== s || renderCache.gridSize !== GRID || 
-       renderCache.lastZoom !== Core.zoom) {
-      renderCache.cellSize = s;
-      renderCache.gridSize = GRID;
-      renderCache.lastZoom = Core.zoom;
-      renderCache.needsFullRedraw = true;
-    }
-
-    ctx.fillStyle = '#2a2f45';
-    ctx.fillRect(0, 0, Core.basePx, Core.basePx);
-
-    ctx.strokeStyle = '#404a78';
-    ctx.lineWidth = 1 / Core.zoom;
-
-    const viewX1 = -Core.pan.x / Core.zoom;
-    const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
-    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
-
-    const startRow = Math.max(0, Math.floor(viewY1 / s));
-    const endRow = Math.min(GRID, Math.ceil(viewY2 / s));
-    const startCol = Math.max(0, Math.floor(viewX1 / s));
-    const endCol = Math.min(GRID, Math.ceil(viewX2 / s));
-
-    ctx.beginPath();
-    for(let i = startRow; i <= endRow; i++) {
-      const p = i * s;
-      ctx.moveTo(0, p);
-      ctx.lineTo(Core.basePx, p);
-    }
-    for(let i = startCol; i <= endCol; i++) {
-      const p = i * s;
-      ctx.moveTo(p, 0);
-      ctx.lineTo(p, Core.basePx);
-    }
-    ctx.stroke();
-  }
-
- // ============================================================
-  // IMAGE LOADING (IMPROVED)
-  // ============================================================
-  function loadImage(src, callback) {
-    if(!src) return null;
+    const candidates = Core.spatialIndex.query(rc.r, rc.c);
     
-    // Return cached image if available and loaded
-    if(renderCache.imageCache[src]) {
-      const img = renderCache.imageCache[src];
-      if(img.complete && img.naturalWidth > 0) {
-        return img;
-      }
-    }
-    
-    const img = new Image();
-    
-    img.onload = () => {
-      renderCache.imageCache[src] = img;
-      console.log('Image loaded:', src);
-      // Trigger re-render when image loads
-      if(window.Draw && window.Draw.render) {
-        window.Draw.render();
-      }
-      if(callback) callback();
-    };
-    
-    img.onerror = () => {
-      console.warn('Failed to load image:', src);
-      delete renderCache.imageCache[src];
-    };
-    
-    img.src = src;
-    renderCache.imageCache[src] = img;
-    return img;
-  }
-
-  // ============================================================
-  // ITEM DRAWING
-  // ============================================================
-  function drawItems() {
-    const Core = getCore();
-    const {ctx, cell, SIZE, TYPES, FILL, BORDER, BORDER_SEL} = Core;
-    const s = cell();
-
-    const viewX1 = -Core.pan.x / Core.zoom;
-    const viewY1 = -Core.pan.y / Core.zoom;
-    const viewX2 = viewX1 + (Core.basePx / Core.zoom);
-    const viewY2 = viewY1 + (Core.basePx / Core.zoom);
-
-    const layers = {
-      areas: [],
-      ambients: [],
-      blocks: []
-    };
-
-    // Sort items into layers
-    for(const it of Core.items) {
-      const sz = Core.getSize(it);
-      const x = it.col * s;
-      const y = it.row * s;
-      const w = (it.sizeW || sz) * s;
-      const h = (it.sizeH || sz) * s;
-
-      if(x + w < viewX1 || x > viewX2 || y + h < viewY1 || y > viewY2) {
-        continue;
-      }
-
-      layers.blocks.push(it);
+    for(let i = candidates.length - 1; i >= 0; i--) {
+      const it = candidates[i];
+      const sizeW = it.sizeW !== undefined ? it.sizeW : Core.getSize(it);
+      const sizeH = it.sizeH !== undefined ? it.sizeH : Core.getSize(it);
       
-      if(it.type === TYPES.P && it.glow && it.area > 0) {
-        layers.areas.push(it);
-      }
-      if(it.type === TYPES.Y) {
-        layers.ambients.push(it);
+      if(rc.r >= it.row && rc.r < it.row + sizeH &&
+         rc.c >= it.col && rc.c < it.col + sizeW) {
+        return it;
       }
     }
-
-    // Draw area glows
-    for(const it of layers.areas) {
-      const sizeW = it.sizeW || Core.getSize(it);
-      const sizeH = it.sizeH || Core.getSize(it);
-      const r0 = it.row - it.area;
-      const c0 = it.col - it.area;
-      const r1 = it.row + sizeH + it.area;
-      const c1 = it.col + sizeW + it.area;
-      const areaColor = it.areaColor || it.color || FILL.P;
-      const alpha = (Number.isFinite(it.areaAlpha) ? it.areaAlpha : 22) / 100;
-
-      ctx.save();
-      ctx.shadowColor = areaColor;
-      ctx.shadowBlur = 18 / Core.zoom;
-      ctx.fillStyle = areaColor;
-      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-      ctx.fillRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
-      ctx.restore();
-
-      const aBorderAlpha = (Number.isFinite(it.areaBorderAlpha) ? it.areaBorderAlpha : 100) / 100;
-      ctx.strokeStyle = hexToRgba(it.areaBorderColor || areaColor, aBorderAlpha);
-      ctx.lineWidth = (Number.isFinite(it.areaBorderWidth) ? it.areaBorderWidth : 2) / Core.zoom;
-      ctx.strokeRect(c0 * s, r0 * s, (c1 - c0) * s, (r1 - r0) * s);
-    }
-
-    // Draw ambient lights (Y blocks)
-    for(const it of layers.ambients) {
-      const sz = Core.getSize(it);
-      const half = Math.floor(sz / 2);
-      const centerR = it.row + half;
-      const centerC = it.col + half;
-      const r0 = centerR - 11, c0 = centerC - 11;
-      const r1 = centerR + 12, c1 = centerC + 12;
-      const xx = c0 * s, yy = r0 * s;
-      const ww = (c1 - c0) * s, hh = (r1 - r0) * s;
-
-      ctx.save();
-      ctx.shadowColor = 'rgba(249,228,106,0.9)';
-      ctx.shadowBlur = 18 / Core.zoom;
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = 'rgba(255,216,74,0.18)';
-      ctx.fillRect(xx, yy, ww, hh);
-      ctx.restore();
-
-      ctx.strokeStyle = 'rgba(249,228,106,0.9)';
-      ctx.lineWidth = 2 / Core.zoom;
-      ctx.strokeRect(xx, yy, ww, hh);
-    }
-
-    // Draw blocks
-    for(const it of layers.blocks) {
-      const sz = Core.getSize(it);
-      const w = (it.sizeW || sz) * s;
-      const h = (it.sizeH || sz) * s;
-      const x = it.col * s;
-      const y = it.row * s;
-
-      if (it.type === TYPES.P) {
-        const fillAlpha = (Number.isFinite(it.fillAlpha) ? it.fillAlpha : 100) / 100;
-
-  	  if (fillAlpha > 0) {
-          ctx.save();
-          ctx.globalAlpha = fillAlpha;
-          ctx.fillStyle = it.color || FILL.P;
-          ctx.fillRect(x, y, w, h);
-          ctx.restore();
-        }
-
-        const borderAlpha = (Number.isFinite(it.borderAlpha) ? it.borderAlpha : 100) / 100;
-        if (borderAlpha > 0.001) {
-          ctx.save();
-          ctx.globalAlpha = borderAlpha;
-          ctx.strokeStyle = it.borderColor || it.color || '#000000';
-
-          const bw = (Number.isFinite(it.borderWidth) ? it.borderWidth : 1.5);
-          ctx.lineWidth = bw / Core.zoom;
-
-          const offset = bw / (2 * Core.zoom);
-          ctx.strokeRect(
-            x + offset,
-            y + offset,
-            w - bw / Core.zoom,
-            h - bw / Core.zoom
-          );
-
-          ctx.restore();
-        }
-
-        ctx.globalAlpha = 1;
-      } else {
-        ctx.fillStyle = it.color || FILL[it.type] || '#888';
-        ctx.fillRect(x, y, w, h);
-      }
-
-      // Draw image if exists
-      if (it.image) {
-        const img = loadImage(it.image);
-        if (img) {
-          if (img.complete && img.naturalWidth > 0) {
-            ctx.drawImage(img, x, y, w, h);
-          } else {
-            if (!img._hooked) {
-              img._hooked = true;
-              img.addEventListener(
-                'load',
-                () => {
-                  if (window.Draw) window.Draw.render();
-                },
-                { once: true }
-              );
-            }
-          }
-        }
-      }
-
-      const isSelected = Core.selected.has(it.id);
-      ctx.lineWidth = (isSelected ? 2 : 1) / Core.zoom;
-      ctx.strokeStyle = isSelected ? BORDER_SEL : BORDER;
-      ctx.strokeRect(x, y, w, h);
-
-      // Draw labels
-      if(Core.zoom > 0.3) {
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        if(it.type === TYPES.P) {
-          ctx.font = `${s * 1.4}px sans-serif`;
-          ctx.fillText(it.label || 'P', x + w / 2, y + h / 2);
-          
-          if(it.locked) {
-            ctx.font = `${s * 1.0}px sans-serif`;
-            ctx.fillText('🔒', x + w / 2, y + h - s * 0.7);
-          }
-        } else {
-          ctx.font = `${s * 1.5}px sans-serif`;
-          ctx.fillText(it.order || '', x + w / 2, y + h / 2);
-        }
-      }
-    }
-  }
-
-  // ============================================================
-  // LASSO SELECTION DRAWING
-  // ============================================================
-  function drawLasso() {
-    const Core = getCore();
-    const {ctx, selectionMode, lassoStart, _mouseW} = Core;
     
-    if(selectionMode && lassoStart) {
-      ctx.strokeStyle = '#00e5ff';
-      ctx.setLineDash([4 / Core.zoom, 2 / Core.zoom]);
-      ctx.lineWidth = 1 / Core.zoom;
-      ctx.strokeRect(
-        lassoStart.x, lassoStart.y,
-        _mouseW.x - lassoStart.x, _mouseW.y - lassoStart.y
-      );
-      ctx.setLineDash([]);
-    }
-  }
-
-	function drawMeasureLine() {
-	  const Core = getCore();
-	  if(window.Features && window.Features.Measure) {
-		window.Features.Measure.draw(Core.ctx);
-	  }
-	}
-	
-  // ============================================================
-  // RENDER REQUEST (THROTTLED)
-  // ============================================================
-  function requestRender() {
-    if(renderRequested) return;
-    
-    renderRequested = true;
-    requestAnimationFrame(() => {
-      const now = performance.now();
-      if(now - lastRenderTime >= minFrameTime) {
-        renderNow();
-        lastRenderTime = now;
-      }
-      renderRequested = false;
-    });
-  }
-
-  // ============================================================
-  // IMMEDIATE RENDER
-  // ============================================================
-  function renderNow() {
-    const Core = getCore();
-    if(!Core || !Core.ctx) return;
-
-    if(Core._dirtyFlags.items) {
-      Core.renumber();
-    }
-
-    Core.clearCanvas();
-    Core.setTransform();
-    
-    drawGrid();
-    drawItems();
-    drawLasso();
-    drawMeasureLine(); 
-
-
-    const zoomPct = Math.round(Core.zoom * 100);
-    const zoomLabel = Core.$('zoom-label');
-    if(zoomLabel) zoomLabel.textContent = zoomPct + '%';
-
-    const activeMode = Core.selectionMode ? "Mode: Selection" : "Mode: Draw";
-    const status = Core.$('status');
-    if(status) {
-      const xCount = Core.items.filter(i => i.type === 'X').length;
-      const yCount = Core.items.filter(i => i.type === 'Y').length;
-      const pCount = Core.items.filter(i => i.type === 'P').length;
-      status.innerHTML = `Bases: ${xCount} | Y: ${yCount} | P: ${pCount}`;
-    }
-
-    const modeEl = Core.$('active-mode');
-    if(modeEl) modeEl.textContent = activeMode;
-
-    if(Core._dirtyFlags.legend && window.UI && window.UI.updateLegend) {
-      window.UI.updateLegend();
-    }
-
-    Core.clearDirtyFlags();
-  }
-
-  Draw.render = requestRender;
-  Draw.renderImmediate = renderNow;
-  Draw.clearCache = function() {
-    renderCache.cellSize = null;
-    renderCache.gridSize = null;
-    renderCache.lastZoom = null;
-    renderCache.needsFullRedraw = true;
-  };
-
-  window.Draw = Draw;
-})();
-
-// ============================================================
-// GESTURES - Input Handler
-// ============================================================
-(function(){
-  const GestureState = {
-    IDLE: 'idle', 
-    DRAWING: 'drawing', 
-    PANNING: 'panning', 
-    SELECTING: 'selecting',
-    DRAGGING: 'dragging', 
-    LASSO: 'lasso', 
-    PINCHING: 'pinching'
-  };
-
-  const Gestures = {
-    state: GestureState.IDLE,
-    pointers: new Map(),
-    dragData: null,
-    pinchData: null,
-    lastMidCSS: null,
-    panButton: 1,
-    _renderScheduled: false
-  };
-
-  // ============================================================
-  // DOUBLE-TAP DETECTION FOR MOBILE (FIXED)
-  // ============================================================
-  let lastTapTime = 0;
-  let lastTapId = null;
-
-  function $(id){ return document.getElementById(id); }
-  function getCore(){ return window.Core; }
-  function getCanvas(){ return window.Core.canvas; }
-  
-  function distance(a,b){
-    const dx=a.x-b.x, dy=a.y-b.y; 
-    return Math.hypot(dx,dy);
-  }
-  
-  function midpoint(a,b){ 
-    return {x:(a.x+b.x)/2, y:(a.y+b.y)/2};
-  }
-  
-  function worldAtScreen(xCSS,yCSS){
-    const Core=getCore(), canvas=getCanvas(), rect=canvas.getBoundingClientRect();
-    const xDev=(xCSS-rect.left)*(canvas.width/rect.width);
-    const yDev=(yCSS-rect.top)*(canvas.height/rect.height);
-    return {
-      x:(xDev/Core.dpr - Core.pan.x)/Core.zoom,
-      y:(yDev/Core.dpr - Core.pan.y)/Core.zoom
-    };
-  }
-  
-  function keepWorldPointUnderScreen(worldPt,xCSS,yCSS){
-    const Core=getCore();
-    Core.pan.x=xCSS - worldPt.x*Core.zoom;
-    Core.pan.y=yCSS - worldPt.y*Core.zoom;
-  }
-  
-  function hitItemAtRC(rc){
-    const Core=getCore(), rr=rc.r, cc=rc.c;
-    for(let i=Core.items.length-1;i>=0;--i){
-      const it=Core.items[i], sz=Core.getSize(it);
-      if(rr>=it.row && rr<it.row+sz && cc>=it.col && cc<it.col+sz) return it;
-    }
     return null;
   }
 
-// ============================================================
-// POINTER DOWN HANDLER (FIXED FOR SELECT MODE + DRAW PICK&DRAG)
-// ============================================================
-function handlePointerDown(e){
-  if(e.pointerType==='mouse' && e.button===0 && e.width===0 && e.height===0) return;
-
-  // FIXED: Ignore right-click for drawing - it's handled by contextmenu event
-  if(e.button === 2) {
-    return;
-  }
-
-  e.preventDefault();
-  const canvas=getCanvas(), Core=getCore();
-  canvas.setPointerCapture(e.pointerId);
-  Gestures.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-
-  // Middle/assigned pan button: start panning immediately
-  if(e.button===Gestures.panButton){
-    Gestures.state=GestureState.PANNING;
-    Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
-    return;
-  }
-  
-  if(Gestures.pointers.size===1){
-    const rc=Core.evtRC(e);
+  // ============================================================
+  // POINTER DOWN HANDLER
+  // ============================================================
+  function handlePointerDown(e) {
+    e.preventDefault();
     
-    // Check for measure tool
+    // Check if measure tool is active and handle it
     if(window.Features && window.Features.Measure && window.Features.Measure.active) {
-      if(window.Features.Measure.handleClick(rc, e.clientX, e.clientY)) {
-        return;
-      }
+      const rc = Core.evtRC(e);
+      const handled = window.Features.Measure.handleClick(rc, e.clientX, e.clientY);
+      if(handled) return;
     }
+    
+    Gestures.pointers.set(e.pointerId, {
+      id: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      button: e.button
+    });
 
-    // FIXED: In View mode, allow 1-finger pan
-    if(Core.mode==='view'){
-      Gestures.state=GestureState.PANNING;
-      Gestures.lastMidCSS={x:e.clientX,y:e.clientY};
+    if(e.button === 2) return;
+
+    const pCount = Gestures.pointers.size;
+
+    if(pCount === 2) {
+      const vals = Array.from(Gestures.pointers.values());
+      const midX = (vals[0].clientX + vals[1].clientX) / 2;
+      const midY = (vals[0].clientY + vals[1].clientY) / 2;
+      const dx = vals[1].clientX - vals[0].clientX;
+      const dy = vals[1].clientY - vals[0].clientY;
+      const dist = Math.hypot(dx, dy);
+
+      Gestures.lastMidCSS = {x: midX, y: midY};
+      Gestures.pinchData = {startDist: dist, startZoom: Core.zoom};
+      Gestures.state = GestureState.PINCH;
       return;
     }
 
-    if(Core.mode==='draw'){
-      // NEW: In draw mode, allow selecting and dragging if clicking inside an item (no lasso)
-      const hit = hitItemAtRC(rc);
-      if (hit) {
-        // Selection update: modifiers toggle-add, otherwise single-pick
-        if (e.shiftKey || e.ctrlKey || e.metaKey) {
-          if (Core.selected.has(hit.id)) Core.selected.delete(hit.id);
-          else Core.selected.add(hit.id);
-        } else {
-          if (!Core.selected.has(hit.id)) {
+    if(pCount !== 1) return;
+
+    const rc = Core.evtRC(e);
+    const hit = hitItemAtRC(rc);
+    const mode = Core.mode || 'draw';
+
+    if(mode === 'draw') {
+      Core.pushUndo(true);
+      Core.lastPaintRC = rc;
+      
+      const existingHit = hitItemAtRC(rc);
+      if(!existingHit) {
+        Core.addBlock('X', rc.r, rc.c);
+        if(window.Draw) window.Draw.render();
+      }
+      
+      Gestures.state = GestureState.PAINT;
+    }
+    else if(mode === 'select') {
+      if(hit) {
+        if(!Core.selected.has(hit.id)) {
+          if(!e.shiftKey && !e.ctrlKey && !e.metaKey) {
             Core.selected.clear();
-            Core.selected.add(hit.id);
           }
+          Core.selected.add(hit.id);
+          Core.lastSelected = hit;
         }
-        Core.lastSelected = hit;
-        Core.markDirty('selection');
-        window.Draw.render();
 
-        // Prepare drag (same as Select mode)
         Gestures.dragData = {
-          id: hit.id,
-          ids: Array.from(Core.selected),
-          anchorRC: rc,
-          originals: {},
-          didUndo: false
+          items: Array.from(Core.selected).map(id => {
+            const it = Core.items.find(x => x.id === id);
+            if(!it || it.locked) return null;
+            return {
+              id: it.id,
+              startRow: it.row,
+              startCol: it.col
+            };
+          }).filter(Boolean),
+          startRC: rc
         };
-        for (const id of Gestures.dragData.ids) {
-          const it = Core.items.find(x => x.id === id);
-          if (it) Gestures.dragData.originals[id] = { row: it.row, col: it.col };
-        }
-        Gestures.state = GestureState.SELECTING;
-        Core.lassoStart = null; // no lasso in draw mode
 
-        // IMPORTANT: do not start painting if we grabbed an item
-        return;
-      }
+        if(Gestures.dragData.items.length > 0) {
+          Gestures.state = GestureState.DRAG;
+          Core.pushUndo(true);
+        } else {
+          Gestures.dragData = null;
+        }
 
-      // No hit -> proceed with normal draw behavior
-      Core.pushUndo(); 
-      Core.placeX(rc); 
-      Core.lastPaintRC=rc; 
-      Gestures.state=GestureState.DRAWING;
-    }
-    else if(Core.mode==='select'){
-      const hit=hitItemAtRC(rc);
-      if(hit){
-        // DOUBLE-TAP DETECTION (FIXED)
-        const now = Date.now();
-        if(hit.type === Core.TYPES.P && now - lastTapTime < 300 && lastTapId === hit.id) {
-          // Double-tap detected - open edit modal
-          if(window.openPointModal) {
-            window.openPointModal(hit);
-          }
-          lastTapTime = 0;
-          lastTapId = null;
-          return;
+        Core.markDirty('selection');
+        if(window.Draw) window.Draw.render();
+      } else {
+        if(!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          Core.selected.clear();
         }
-        lastTapTime = now;
-        lastTapId = hit.id;
         
-        if(!Core.selected.has(hit.id)) { 
-          Core.selected.clear(); 
-          Core.selected.add(hit.id); 
-        }
-        Core.lastSelected=hit;
-        Core.markDirty('selection'); 
-        window.Draw.render();
+        const world = Core.screenToWorld(e.clientX, e.clientY);
+        Core.lassoStart = {x: world.x, y: world.y};
+        Gestures.state = GestureState.LASSO;
         
-        Gestures.dragData={
-          id:hit.id,
-          ids:Array.from(Core.selected),
-          anchorRC:rc,
-          originals:{},
-          didUndo:false
-        };
-        for(const id of Gestures.dragData.ids){
-          const it=Core.items.find(x=>x.id===id);
-          if(it) Gestures.dragData.originals[id]={row:it.row,col:it.col};
-        }
-        Gestures.state=GestureState.SELECTING;
-        Core.lassoStart=null;
-      }else{
-        Core.selected.clear(); 
-        Core.markDirty('selection'); 
-        window.Draw.render();
-        Gestures.dragData=null; 
-        Core.lassoStart={x:Core._mouseW.x,y:Core._mouseW.y};
-        Gestures.state=GestureState.LASSO;
+        Core.markDirty('selection');
+        if(window.Draw) window.Draw.render();
       }
     }
-  } else if(Gestures.pointers.size===2){
-    const [a,b]=[...Gestures.pointers.values()], mid=midpoint(a,b);
-    Gestures.pinchData={
-      startDist:distance(a,b), 
-      startZoom:Core.zoom, 
-      midCSS:mid,
-      midWorld:worldAtScreen(mid.x,mid.y)
-    };
-    Gestures.state=GestureState.PINCHING;
+    else if(mode === 'view') {
+      const world = Core.screenToWorld(e.clientX, e.clientY);
+      Gestures.dragData = {
+        startPanX: Core.pan.x,
+        startPanY: Core.pan.y,
+        startWorldX: world.x,
+        startWorldY: world.y
+      };
+      Gestures.state = GestureState.PAN;
+    }
   }
-}
 
   // ============================================================
-  // POINTER MOVE HANDLER (FIXED - ZOOM TO VIEWPORT CENTER)
+  // POINTER MOVE HANDLER
   // ============================================================
   function handlePointerMove(e) {
-    if (!Gestures.pointers.has(e.pointerId)) return;
     e.preventDefault();
-    Gestures.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const Core = getCore();
-    const rc = Core.evtRC(e);
 
-    if (Gestures.state === GestureState.PANNING && Gestures.lastMidCSS) {
-      Core.pan.x += (e.clientX - Gestures.lastMidCSS.x);
-      Core.pan.y += (e.clientY - Gestures.lastMidCSS.y);
-      Core.markDirty('view');
-      window.Draw.render();
-      Gestures.lastMidCSS = { x: e.clientX, y: e.clientY };
+    const p = Gestures.pointers.get(e.pointerId);
+    if(p) {
+      p.clientX = e.clientX;
+      p.clientY = e.clientY;
+    }
+
+    const world = Core.screenToWorld(e.clientX, e.clientY);
+    Core._mouseW = world;
+
+    if(Gestures.state === GestureState.PINCH && Gestures.pointers.size === 2) {
+      const vals = Array.from(Gestures.pointers.values());
+      const midX = (vals[0].clientX + vals[1].clientX) / 2;
+      const midY = (vals[0].clientY + vals[1].clientY) / 2;
+      const dx = vals[1].clientX - vals[0].clientX;
+      const dy = vals[1].clientY - vals[0].clientY;
+      const dist = Math.hypot(dx, dy);
+
+      if(Gestures.pinchData && Gestures.lastMidCSS) {
+        const ratio = dist / Gestures.pinchData.startDist;
+        const dynamicMax = Core.getDynamicMaxZoom();
+        const newZoom = Math.max(0.4, Math.min(dynamicMax, Gestures.pinchData.startZoom * ratio));
+
+        const rect = Core.canvas.getBoundingClientRect();
+        const anchorX = Gestures.lastMidCSS.x - rect.left;
+        const anchorY = Gestures.lastMidCSS.y - rect.top;
+        const worldPt = Core.screenToWorld(Gestures.lastMidCSS.x, Gestures.lastMidCSS.y);
+
+        Core.zoom = newZoom;
+        Core.pan.x = anchorX - worldPt.x * Core.zoom;
+        Core.pan.y = anchorY - worldPt.y * Core.zoom;
+
+        Core.clampPan();
+
+        const panDX = midX - Gestures.lastMidCSS.x;
+        const panDY = midY - Gestures.lastMidCSS.y;
+        Core.pan.x += panDX;
+        Core.pan.y += panDY;
+        Core.clampPan();
+
+        Gestures.lastMidCSS = {x: midX, y: midY};
+
+        Core.markDirty('view');
+        if(!Gestures._renderScheduled) {
+          Gestures._renderScheduled = true;
+          requestAnimationFrame(() => {
+            if(window.Draw) window.Draw.render();
+            Gestures._renderScheduled = false;
+          });
+        }
+      }
       return;
     }
 
-    // FIXED: Pinch zoom anchors to viewport center
-    if (Gestures.state === GestureState.PINCHING && Gestures.pointers.size === 2) {
-      const [a, b] = [...Gestures.pointers.values()];
-      const mid = midpoint(a, b);
-      const dist = distance(a, b);
-      const pinch = Gestures.pinchData;
+    if(Gestures.state === GestureState.PAINT) {
+      const rc = Core.evtRC(e);
+      if(!Core.lastPaintRC || rc.r !== Core.lastPaintRC.r || rc.c !== Core.lastPaintRC.c) {
+        const existingHit = hitItemAtRC(rc);
+        if(!existingHit) {
+          Core.addBlock('X', rc.r, rc.c);
+          if(window.Draw) window.Draw.render();
+        }
+        Core.lastPaintRC = rc;
+      }
+      return;
+    }
 
-      const distChange = Math.abs(dist - pinch.startDist);
-      const scaleChange = dist / (pinch.startDist || dist);
+    if(Gestures.state === GestureState.DRAG && Gestures.dragData) {
+      const currentRC = Core.evtRC(e);
+      const dr = currentRC.r - Gestures.dragData.startRC.r;
+      const dc = currentRC.c - Gestures.dragData.startRC.c;
 
-      // Check if this is mostly a pan (fingers stay same distance apart)
-      const isPan = (distChange / pinch.startDist) < 0.05;
+      for(const d of Gestures.dragData.items) {
+        const it = Core.items.find(x => x.id === d.id);
+        if(!it || it.locked) continue;
 
-      if (isPan) {
-        // Two-finger pan
-        Core.pan.x += (mid.x - pinch.midCSS.x);
-        Core.pan.y += (mid.y - pinch.midCSS.y);
-        pinch.midCSS = mid;
-      } else {
-        // Pinch zoom - anchor to center of viewport
-        const dynamicMax = Core.getDynamicMaxZoom ? Core.getDynamicMaxZoom() : 8;
-        const targetZoom = pinch.startZoom * scaleChange;
-        const oldZoom = Core.zoom;
-        Core.zoom = Math.max(0.4, Math.min(dynamicMax, targetZoom));
-        
-        // Get viewport center
-        const canvas = getCanvas();
-        const rect = canvas.getBoundingClientRect();
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-        
-        // Calculate world point at center BEFORE zoom change
-        const centerWorldX = (centerX - Core.pan.x) / oldZoom;
-        const centerWorldY = (centerY - Core.pan.y) / oldZoom;
-        
-        // Keep that world point at center AFTER zoom change
-        Core.pan.x = centerX - centerWorldX * Core.zoom;
-        Core.pan.y = centerY - centerWorldY * Core.zoom;
+        const newR = d.startRow + dr;
+        const newC = d.startCol + dc;
 
-        const sliderEl = document.getElementById('zoom-slider');
-        if (sliderEl) sliderEl.max = String(Math.round(Core.getDynamicMaxZoom() * 100));
+        const sizeW = it.sizeW !== undefined ? it.sizeW : Core.getSize(it);
+        const sizeH = it.sizeH !== undefined ? it.sizeH : Core.getSize(it);
+
+        if(newR >= 0 && newR + sizeH <= Core.GRID &&
+           newC >= 0 && newC + sizeW <= Core.GRID &&
+           !Core.isOccupied(newR, newC, {w: sizeW, h: sizeH}, it.id)) {
+          it.row = newR;
+          it.col = newC;
+        }
       }
 
-      Gestures.lastMidCSS = mid;
-      const pct = Math.round(Core.zoom * 100);
-      const slider = document.getElementById('zoom-slider');
-      const label = document.getElementById('zoom-label');
-      if (slider) slider.value = String(pct);
-      if (label) label.textContent = pct + '%';
-
-      if (!Gestures._renderScheduled) {
+      Core.renumber();
+      Core.markDirty('items');
+      if(!Gestures._renderScheduled) {
         Gestures._renderScheduled = true;
         requestAnimationFrame(() => {
-          Core.markDirty('view');
-          window.Draw.render();
+          if(window.Draw) window.Draw.render();
           Gestures._renderScheduled = false;
         });
       }
       return;
     }
 
-    if (Gestures.state === GestureState.LASSO) {
-      window.Draw.render();
-      return;
-    }
-
-    if (Gestures.state === GestureState.SELECTING && Gestures.dragData) {
-      const dd = Gestures.dragData;
-      const moveRC = rc;
-
-      const movedEnough =
-        Math.abs(moveRC.r - dd.anchorRC.r) >= 1 ||
-        Math.abs(moveRC.c - dd.anchorRC.c) >= 1;
-      if (movedEnough) Gestures.state = GestureState.DRAGGING;
-    }
-
-    if (Gestures.state === GestureState.DRAGGING && Gestures.dragData) {
-      const Core = getCore();
-      const dd = Gestures.dragData;
-      const dr = rc.r - dd.anchorRC.r;
-      const dc = rc.c - dd.anchorRC.c;
-
-      if (!dd.didUndo) {
-        Core.pushUndo(true);
-        dd.didUndo = true;
-      }
-
-      const ignoreSet = new Set(dd.ids);
-      const proposedPositions = [];
-      let canMoveAll = true;
-
-      for(const id of dd.ids) {
-        const it = Core.items.find(x => x.id === id);
-        if (!it || it.locked) {
-          canMoveAll = false;
-          break;
-        }
-        
-        const orig = dd.originals[id];
-        if (!orig) {
-          canMoveAll = false;
-          break;
-        }
-
-        const sizeW = it.sizeW || Core.getSize(it);
-        const sizeH = it.sizeH || Core.getSize(it);
-
-        const newRow = Math.max(0, Math.min(Core.GRID - sizeH, orig.row + dr));
-        const newCol = Math.max(0, Math.min(Core.GRID - sizeW, orig.col + dc));
-
-        proposedPositions.push({ 
-          id, 
-          row: newRow, 
-          col: newCol,
-          sizeW: sizeW,
-          sizeH: sizeH
+    if(Gestures.state === GestureState.LASSO && Core.lassoStart) {
+      Core.markDirty('selection');
+      if(!Gestures._renderScheduled) {
+        Gestures._renderScheduled = true;
+        requestAnimationFrame(() => {
+          if(window.Draw) window.Draw.render();
+          Gestures._renderScheduled = false;
         });
       }
-
-      if (canMoveAll) {
-        for (const proposed of proposedPositions) {
-          const it = Core.items.find(x => x.id === proposed.id);
-          if (!it) {
-            canMoveAll = false;
-            break;
-          }
-
-          const testObj = {
-            id: it.id,
-            row: proposed.row,
-            col: proposed.col,
-            sizeW: proposed.sizeW,
-            sizeH: proposed.sizeH,
-            type: it.type
-          };
-
-          if (Core.collides(testObj, ignoreSet)) {
-            canMoveAll = false;
-            break;
-          }
-        }
-      }
-
-      if (canMoveAll && proposedPositions.length > 0) {
-        for (const pos of proposedPositions) {
-          const it = Core.items.find(x => x.id === pos.id);
-          if (it) {
-            it.row = pos.row;
-            it.col = pos.col;
-          }
-        }
-        Core.markDirty('items');
-        window.Draw.render();
-      }
-      
       return;
     }
 
-    if (Gestures.state === GestureState.DRAWING) {
-      if (!Core.lastPaintRC || rc.r !== Core.lastPaintRC.r || rc.c !== Core.lastPaintRC.c) {
-        Core.placeX(rc);
-        Core.lastPaintRC = rc;
+    if(Gestures.state === GestureState.PAN && Gestures.dragData) {
+      const world = Core.screenToWorld(e.clientX, e.clientY);
+      const dx = world.x - Gestures.dragData.startWorldX;
+      const dy = world.y - Gestures.dragData.startWorldY;
+
+      Core.pan.x = Gestures.dragData.startPanX + dx * Core.zoom;
+      Core.pan.y = Gestures.dragData.startPanY + dy * Core.zoom;
+
+      Core.clampPan();
+      Core.markDirty('view');
+      if(!Gestures._renderScheduled) {
+        Gestures._renderScheduled = true;
+        requestAnimationFrame(() => {
+          if(window.Draw) window.Draw.render();
+          Gestures._renderScheduled = false;
+        });
       }
+      return;
     }
   }
 
   // ============================================================
   // POINTER UP HANDLER
   // ============================================================
-  function handlePointerUp(e){
+  function handlePointerUp(e) {
     e.preventDefault();
-    const canvas = getCanvas(), Core = getCore();
-    canvas.releasePointerCapture(e.pointerId);
     Gestures.pointers.delete(e.pointerId);
 
-    Core.evtRC(e);
-
-    if (Gestures.pointers.size === 0) {
-      if (Gestures.state === GestureState.LASSO && Core.lassoStart) {
-        Core.selected.clear();
+    if(Gestures.pointers.size === 0) {
+      if(Gestures.state === GestureState.LASSO && Core.lassoStart) {
         const s = Core.cell();
-
         const x1 = Math.min(Core.lassoStart.x, Core._mouseW.x);
         const x2 = Math.max(Core.lassoStart.x, Core._mouseW.x);
         const y1 = Math.min(Core.lassoStart.y, Core._mouseW.y);
@@ -1543,7 +952,7 @@ function handlePointerDown(e){
           const lx1 = Math.min(x1, x2) - tol;
           const lx2 = Math.max(x1, x2) + tol;
           const ly1 = Math.min(y1, y2) - tol;
-          const ly2 = Math.max(y1, y2) + tol;
+          const ly2 = Math.max(x1, x2) + tol;
 
           const overlap = !(xw2 < lx1 || xw1 > lx2 || yw2 < ly1 || yw1 > ly2);
           if (overlap) Core.selected.add(it.id);
@@ -1564,7 +973,7 @@ function handlePointerDown(e){
   }
 
 // ============================================================
-// CONTEXT MENU HANDLER (mode-aware: draw vs select)
+// CONTEXT MENU HANDLER (FIXED - mode-aware: draw vs select)
 // ============================================================
 function handleContextMenu(e){
   e.preventDefault();
@@ -1617,12 +1026,75 @@ function handleContextMenu(e){
 
   const items = [];
 
-// Draw mode menu: expanded with all elements
+  // FIXED: Build proper menu based on mode
+  if(isDraw) {
+    // Draw mode menu: show element presets
+    if(window.getElementMenuItems && typeof window.getElementMenuItems === 'function') {
+      const elementItems = window.getElementMenuItems();
+      items.push(...elementItems);
+      
+      if(elementItems.length > 0) {
+        items.push('divider');
+      }
+    }
+    
+    // Add custom point option
+    items.push({
+      icon: '📍',
+      label: 'Custom Point',
+      action: () => {
+        const btn = getById('add-point');
+        if(btn) btn.click();
+      }
+    });
+    
+    items.push('divider');
+    
+    // Clear all option
+    items.push({
+      icon: '🗑️',
+      label: 'Clear All',
+      action: () => {
+        const btn = getById('clear');
+        if(btn) btn.click();
+      }
+    });
+  } else {
+    // Select mode menu (order exactly as requested)
+    items.push(
+      // First group
+      { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
+      { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
+      { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
+      { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
+      { icon:'🔳', label:'Deselect', action:()=>{ Core.selected.clear(); Core.markDirty('selection'); if(window.Draw) window.Draw.render(); }, disabled: selectedCount === 0 },
+
+      'divider',
+
+      // Align group
+      { icon:'↔️', label:'Align Horizontal', action:()=>{ const b=getById('align-h'); if(b) b.click(); }, disabled: !canAlign },
+      { icon:'↕️', label:'Align Vertical',   action:()=>{ const b=getById('align-v'); if(b) b.click(); }, disabled: !canAlign },
+
+      'divider',
+
+      // Point-specific actions
+      { icon:'✏️', label:'Edit Point',    action:()=>{ const b=getById('edit-point'); if(b) b.click(); },    disabled: !canEditPoint },
+      { icon:'🔒', label:'Lock/Unlock',   action:()=>{ const b=getById('toggle-lock'); if(b) b.click(); },    disabled: !canTogglePointAction },
+      { icon:'💡', label:'Toggle Light',  action:()=>{ const b=getById('lights'); if(b) b.click(); },         disabled: !canTogglePointAction },
+
+      'divider',
+
+      // Always present
+      { icon:'🗑️', label:'Clear All',     action:()=>{ const b=getById('clear'); if(b) b.click(); } }
+    );
+  }
+
   showDToolsContextMenu(x, y, items);
-  return;
 }
 
+// ============================================================
 // Helper function to add preset elements
+// ============================================================
 function addPresetElement(presetKey) {
   const EP = window.ElementPresets || {};
   const cfg = EP[presetKey];
@@ -1630,7 +1102,14 @@ function addPresetElement(presetKey) {
     console.warn('Unknown preset:', presetKey);
     return;
   }
-  const { rc } = getCanvasCenterRC(); // or reuse your existing code to compute rc
+  
+  // Get center of visible canvas area
+  const rect = Core.canvas.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const world = Core.screenToWorld(rect.left + centerX, rect.top + centerY);
+  const rc = Core.worldToRC(world.x, world.y);
+  
   Core.pushUndo(true);
   Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
   Core.markDirty('items');
@@ -1638,41 +1117,11 @@ function addPresetElement(presetKey) {
   if (window.UI?.Toast) window.UI.Toast.success(`${cfg.label || presetKey} added`);
 }
 
-
-  // Select mode menu (order exactly as requested)
-  items.push(
-    // First group
-    { icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
-    { icon:'📋', label:'Copy',     action:()=>{ const b=getById('copy-selected'); if(b) b.click(); },   disabled: selectedCount === 0 },
-    { icon:'📄', label:'Paste',    action:()=>{ const b=getById('paste-selected'); if(b) b.click(); },  disabled: !canPaste },
-    { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-	{ icon:'🔳', label:'Deselect', action:()=>{ Core.selected.clear(); Core.markDirty('selection'); if(window.Draw) window.Draw.render(); }, disabled: selectedCount === 0 },
-
-    'divider',
-
-    // Align group
-    { icon:'↔️', label:'Align Horizontal', action:()=>{ const b=getById('align-h'); if(b) b.click(); }, disabled: !canAlign },
-    { icon:'↕️', label:'Align Vertical',   action:()=>{ const b=getById('align-v'); if(b) b.click(); }, disabled: !canAlign },
-
-    'divider',
-
-    // Point-specific actions
-    { icon:'✏️', label:'Edit Point',    action:()=>{ const b=getById('edit-point'); if(b) b.click(); },    disabled: !canEditPoint },
-    { icon:'🔒', label:'Lock/Unlock',   action:()=>{ const b=getById('toggle-lock'); if(b) b.click(); },    disabled: !canTogglePointAction },
-    { icon:'💡', label:'Toggle Light',  action:()=>{ const b=getById('lights'); if(b) b.click(); },         disabled: !canTogglePointAction },
-
-    'divider',
-
-    // Always present
-    { icon:'🗑️', label:'Clear All',     action:()=>{ const b=getById('clear'); if(b) b.click(); } }
-  );
-
-  showDToolsContextMenu(x, y, items);
-}
+// Make globally available for menu system
+window.addPresetElementFromMenu = addPresetElement;
 
 // ============================================================
-// DTools context menu wrapper (reuses your UI system)
-// Accepts explicit items so we can control lists per mode
+// DTools context menu wrapper (reuses UI system)
 // ============================================================
 function showDToolsContextMenu(x, y, items) {
   if (window.UI && window.UI.showContextMenu) {
@@ -1743,10 +1192,10 @@ function showDToolsContextMenu(x, y, items) {
     imagePaths.forEach(path => {
       const img = new Image();
       img.onload = () => {
-        console.log('Preloaded:', path);
+        console.log('✓ Preloaded:', path);
       };
       img.onerror = () => {
-        console.warn('Failed to preload:', path);
+        console.warn('✗ Failed to preload:', path);
       };
       img.src = path;
     });
