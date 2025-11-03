@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MapPlanner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============================================================ -->
+  <!-- MAIN LAYOUT CONTAINER -->
+  <!-- ============================================================ -->
+  <div class="layout">
+
+    <!-- ============================================================ -->
+    <!-- TOP TOOLBAR - CONTROLS AND MODE SELECTION -->
+    <!-- ============================================================ -->
+    <div class="topbar">
+      <div class="buttons">
+        <button id="undo" title="Undo (Ctrl+Z)">↺</button>
+        <button id="redo" title="Redo (Ctrl+Y)">↻</button>
+        <button id="color-btn" title="Color picker">Color</button>
+        <button id="legend-toggle" title="Show/Hide Legend">Legend</button>
+        <button id="help-open" title="Help">Help</button>
+        <button id="dtools-toggle" title="Drawing Tools">DTools</button>
+        <button id="menu-toggle" title="Menu">Menu</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ZOOM CONTROLS AND MODE BUTTONS -->
+      <!-- ============================================================ -->
+      <div class="zoomrow">
+        <input type="range" id="zoom-slider" min="40" max="800" value="100" step="20">
+        <span id="zoom-label">100%</span>
+        <button id="fit-view" title="Fit View (F)">Fit View</button>
+        <div class="row mode-row">
+          <span><b>Mode:</b></span>
+          <button id="mode-draw" class="active">Draw</button>
+          <button id="mode-select">Select</button>
+          <button id="mode-view">View</button>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- STATUS LINE - ITEM COUNTS -->
+      <!-- ============================================================ -->
+      <div id="status" class="statusline">Ready</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MAIN CANVAS - DRAWING AREA -->
+    <!-- ============================================================ -->
+    <canvas id="board" aria-label="Grid"></canvas>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- DRAWING TOOLS PANEL (DTOOLS) -->
+  <!-- ============================================================ -->
+  <div class="menu" id="dtools">
+    <div class="section-title">Editing</div>
+    <div class="row">
+      <button id="delete-selected">Delete</button>
+      <button id="copy-selected">Copy</button>
+      <button id="paste-selected">Paste</button>
+	  <button id="select-all-btn">Select All</button>
+      <button id="deselect">Deselect</button>
+      <button id="clear" class="danger" title="Ctrl+Shift+C">Clear All</button>
+    </div>
+
+    <div class="section-title">Align Bases</div>
+    <div class="row">
+      <button id="align-h">Align H</button>
+      <button id="align-v">Align V</button>
+      <label>N <input type="number" id="align-n" value="5" min="1" max="120"></label>
+      <label>Gap <input type="number" id="align-gap" value="0" min="0" max="20"></label>
+    </div>
+
+    <div class="section-title">Points</div>
+    <div class="row">
+      <div class="dropdown">
+        <button id="points-list">+ Element ▼</button>
+        <div class="dropdown-content" id="points-dropdown">
+  <!-- Auto-generated from elements-config.js -->
+	  </div>
+      </div>
+      <button id="add-point">+ Custom</button>
+      <button id="edit-point">Edit Custom</button>
+      <button id="toggle-lock">Lock/Unlock</button>
+      <button id="lights">Light Base</button>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MAIN MENU PANEL -->
+  <!-- ============================================================ -->
+  <div class="menu" id="menu">
+
+    <div class="section-title">Grid</div>
+    <div class="row">
+      <label>Size
+        <input type="number" id="grid-size" value="180" min="20" max="2000">
+      </label>
+      <button id="apply-grid" title="Apply grid size">Apply</button>
+      <button id="measure-tool">Measure Tool</button>
+    </div>
+
+    <div class="section-title">Auto-Save</div>
+    <div class="row">
+      <button id="autosave-toggle">Auto-Save: OFF</button>
+      <button id="load-autosave">Load Auto-Save</button>
+    </div>
+
+    <div class="section-title">Export</div>
+    <div class="row">
+      <button id="save-json">Save JSON</button>
+      <button id="load-json">Load JSON</button>
+      <input type="file" id="json-file" accept=".json" style="display:none">
+    </div>
+    <div class="row">
+      <button id="export-png">Export PNG</button>
+      <button id="export-csv">Export CSV</button>
+    </div>
+
+    <div class="section-title">View</div>
+    <div class="row">
+      <button id="theme-toggle">Toggle Theme</button>
+      <button id="show-stats">Stats Overlay</button>
+    </div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- LEGEND PANEL (COLOR LABELS) -->
+  <!-- ============================================================ -->
+  <div class="legend-dock" id="legend">
+    <h3>
+      Color Legend
+      <button id="legend-close">✖</button>
+    </h3>
+    <div id="legend-rows"></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- LEGEND EDIT MODAL -->
+  <!-- ============================================================ -->
+  <div class="modal" id="legend-modal" aria-hidden="true">
+    <div class="modal-backdrop" id="legend-modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <h3>Edit Legend Label</h3>
+      <div class="modal-row">
+        <div class="swatch" id="legend-modal-swatch"></div>
+        <input type="text" id="legend-modal-input" placeholder="Enter label">
+      </div>
+      <div class="modal-actions">
+        <button id="legend-modal-cancel">Cancel</button>
+        <button id="legend-modal-save" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- POINT EDIT MODAL -->
+  <!-- ============================================================ -->
+  <div class="modal" id="point-modal" aria-hidden="true">
+    <div class="modal-backdrop" id="point-modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <h3>Edit Point (P)</h3>
+
+      <div class="modal-row compact">
+        <label>Label</label>
+        <input type="text" id="pm-label" placeholder="e.g., P1" style="flex:1">
+        <label style="margin-left:10px;">Area</label>
+        <input type="checkbox" id="pm-glow" checked>
+      </div>
+
+      <div class="modal-row compact">
+        <label>Width</label>
+        <input type="number" id="pm-width" min="1" max="300" value="6">
+        <label>Height</label>
+        <input type="number" id="pm-height" min="1" max="300" value="6">
+        <label>Area</label>
+        <input type="number" id="pm-area" min="0" max="300" value="12">
+      </div>
+
+      <div class="modal-row compact">
+        <label>Image</label>
+        <input type="file" id="pm-image-file" accept="image/*" style="flex:1">
+      </div>
+
+      <div class="modal-row compact">
+        <label>Fill</label>
+        <input type="color" id="pm-color" value="#ff66ff">
+        <label>Opacity</label>
+        <input type="range" id="pm-fill-alpha" min="0" max="100" value="100">
+        <span id="pm-fill-alpha-val">100%</span>
+      </div>
+
+      <div class="modal-row compact">
+        <label>Border</label>
+        <input type="color" id="pm-border-color" value="#000000">
+        <label>Width</label>
+        <input type="number" id="pm-border-width" min="1" max="10" value="1" style="width:50px">
+        <label>Opacity</label>
+        <input type="range" id="pm-border-alpha" min="0" max="100" value="100">
+        <span id="pm-border-alpha-val">100%</span>
+      </div>
+
+      <div class="modal-row compact">
+        <label>Area</label>
+        <input type="color" id="pm-area-color" value="#ff66ff">
+        <label>Opacity</label>
+        <input type="range" id="pm-alpha" min="0" max="100" value="30">
+        <span id="pm-alpha-val">30%</span>
+      </div>
+
+      <div class="modal-row compact">
+        <label>Area Border</label>
+        <input type="color" id="pm-area-border-color" value="#ff66ff">
+        <label>Width</label>
+        <input type="number" id="pm-area-border-width" min="1" max="10" value="2" style="width:50px">
+        <label>Opacity</label>
+        <input type="range" id="pm-area-border-alpha" min="0" max="100" value="100">
+        <span id="pm-area-border-alpha-val">100%</span>
+      </div>
+
+      <div class="modal-actions">
+        <button id="pm-cancel">Cancel</button>
+        <button id="pm-save" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+ <!-- ============================================================ -->
+<!-- HELP OVERLAY WITH INSTRUCTIONS (REVISED) -->
+<!-- ============================================================ -->
+<div class="help-overlay" id="help-overlay">
+  <div class="help-backdrop" id="help-backdrop"></div>
+  <div class="help-card">
+    <h2>MapPlanner — Help</h2>
+
+    <!-- Quick Start -->
+    <div class="help-group">
+      <h3 class="help-toggle">⚡ Quick Start (1 minute)</h3>
+      <div class="help-content show">
+        <ol style="padding-left:20px; line-height:1.6; margin:8px 0;">
+          <li>Pick a <b>Mode</b> (top bar): <b>Draw</b> / <b>Select</b> / <b>View</b>.</li>
+          <li>In <b>Draw</b>, click the grid to place bases (X). Use <b>+ Element</b> for preset items.</li>
+          <li>In <b>Select</b>, click to select, <b>drag</b> to move, or drag empty space to <b>lasso</b>.</li>
+          <li>Use the <b>zoom slider</b>, mouse wheel, or pinch; press <b>F</b> for <b>Fit View</b>.</li>
+          <li>Open <b>DTools</b> for Edit, Align, +Element, +Custom, Lock, etc.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Modes -->
+    <div class="help-group">
+      <h3 class="help-toggle">🎯 Modes</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Draw:</b> Place bases (X) by clicking. Hold & drag to paint multiple.</li>
+          <li><b>Select:</b> Click to select. Drag to move. Drag on empty area to lasso multiple.</li>
+          <li><b>View:</b> Pan without selecting or drawing (safe viewing mode).</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- DTools -->
+    <div class="help-group">
+      <h3 class="help-toggle">🧰 DTools (Drawing Tools)</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Delete / Copy / Paste / Select All / Deselect / Clear All</b></li>
+          <li><b>Align H / Align V:</b> Arrange selected bases; set <b>N</b> and <b>Gap</b> values.</li>
+          <li><b>+ Element ▼:</b> Add presets (Alliance Center, Mountain, Lake, etc.). The list is auto-built from <code>elements-config.js</code>.</li>
+          <li><b>+ Custom:</b> Add a configurable Point (P) at the view center.</li>
+          <li><b>Edit Custom:</b> Change label, size (W/H), area glow, colors, borders, image.</li>
+          <li><b>Lock/Unlock:</b> Prevent moving selected items by accident.</li>
+          <li><b>Light Base:</b> Toggle selected bases between X and Y (light sources).</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Legend & Colors -->
+    <div class="help-group">
+      <h3 class="help-toggle">🎨 Colors & Legend</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Color</b> button: apply a color to selected X/Y blocks.</li>
+          <li><b>Legend</b> shows all used colors. Click a color to set a label.</li>
+          <li><b>Auto-numbering:</b> X and Y blocks are numbered by position & color.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Menu -->
+    <div class="help-group">
+      <h3 class="help-toggle">⚙️ Menu</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Grid Size:</b> 20–2000. Enter a value then click <b>Apply</b>.</li>
+          <li><b>Measure Tool:</b> Click twice on the grid to get distance (tiles). Right-click to exit. (Also available by button.)</li>
+          <li><b>Auto-Save:</b> Saves to your browser every 30s when ON; <b>Load Auto-Save</b> restores it.</li>
+          <li><b>Save/Load JSON:</b> Export/import your full map (<b>items, colors, grid</b>).</li>
+          <li><b>Export PNG:</b> Download an image of the canvas (legend included).</li>
+          <li><b>Export CSV:</b> Export item data to a spreadsheet.</li>
+          <li><b>Toggle Theme:</b> Switch between Dark/Light UI.</li>
+          <li><b>Stats Overlay:</b> Show FPS and item stats.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Keyboard + Mouse -->
+    <div class="help-group">
+      <h3 class="help-toggle">⌨️ Keyboard & 🖱️ Mouse</h3>
+      <div class="help-content">
+        <ul>
+          <li><kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> Undo/Redo &nbsp;•&nbsp; <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> Copy/Paste</li>
+          <li><kbd>Delete</kbd> Remove selected &nbsp;•&nbsp; <kbd>Esc</kbd> Deselect all &nbsp;•&nbsp; <kbd>Ctrl+A</kbd> Select all</li>
+          <li><kbd>F</kbd> Fit View &nbsp;•&nbsp; <kbd>Ctrl+Shift+C</kbd> Clear All &nbsp;•&nbsp; <kbd>?</kbd> Toggle Help</li>
+          <li><b>Mouse:</b> Wheel to zoom (toward cursor), drag to pan in <b>View</b> mode.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Touch -->
+    <div class="help-group">
+      <h3 class="help-toggle">📱 Touch (Mobile/Tablet)</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Pinch</b> to zoom, <b>two-finger drag</b> to pan (any mode).</li>
+          <li><b>Double-tap</b> a Point (P) to open the editor.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Tips -->
+    <div class="help-group">
+      <h3 class="help-toggle">💡 Tips</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Fast Drawing:</b> In <b>Draw</b>, hold & drag to paint many bases quickly.</li>
+          <li><b>No Overlap:</b> Items can’t overlap; the app will try nearby free positions.</li>
+          <li><b>Fit View:</b> If you get “lost”, press <b>F</b>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Troubleshooting -->
+    <div class="help-group">
+      <h3 class="help-toggle">🔧 Troubleshooting</h3>
+      <div class="help-content">
+        <ul>
+          <li><b>Can’t place/move:</b> Check for overlaps or locks. Try <b>Select</b> mode and <b>Fit View</b>.</li>
+          <li><b>Performance:</b> Use a smaller grid, zoom out a bit, or hide stats overlay.</li>
+          <li><b>Missing work:</b> Use <b>Load Auto-Save</b> (if Auto-Save was ON).</li>
+          <li><b>Touch issues:</b> Use a modern browser (Chrome/Safari/Firefox).</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="help-close">Close</button>
+    </div>
+  </div>
+</div>
+
+  <!-- ============================================================ -->
+  <!-- STATS DISPLAY OVERLAY -->
+  <!-- ============================================================ -->
+  <div id="stats-display" style="
+    position: fixed;
+    bottom: 50px;
+    right: 20px;
+    background: rgba(23, 28, 57, 0.9);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: monospace;
+    z-index: 100;
+    display: none;
+  ">
+    <div>FPS: <span id="fps-counter">60</span></div>
+    <div>Total: 0</div>
+    <div>Selected: 0</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- JAVASCRIPT FILES -->
+  <!-- ============================================================ -->
+	<script src="elements-config.js"></script>   
+	<script src="app-core.js"></script>
+	<script src="app-ui.js"></script>
+	<script src="app-features.js"></script>
+	<script src="elements-helper.js"></script>    
+	<script src="app-main.js"></script>
+
+  <!-- ============================================================ -->
+  <!-- INITIALIZATION SCRIPT -->
+  <!-- ============================================================ -->
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (!window.Core) {
+          console.error("Core not loaded");
+          return;
+        }
+
+        const canvas = document.getElementById('board');
+        if (!canvas) return;
+
+        // Initialize canvas and viewport
+        window.Core.markDirty('items');
+        window.Core.markDirty('view');
+        window.Core.markDirty('legend');
+        window.Core.resizeCanvas();
+
+        window.addEventListener('resize', window.Core.resizeCanvas);
+        window.addEventListener('orientationchange', window.Core.resizeCanvas);
+
+        if (window.Draw && window.Draw.renderImmediate) {
+          window.Draw.renderImmediate();
+          console.log("MapPlanner initialized");
+        }
+
+        window.Core.fitView();
+        
+        // ============================================================
+        // HELP PANEL CONTROLS
+        // ============================================================
+        const helpOpen = document.getElementById('help-open');
+        const helpClose = document.getElementById('help-close');
+        const helpOverlay = document.getElementById('help-overlay');
+        const helpBackdrop = document.getElementById('help-backdrop');
+        
+        if (helpOpen && helpOverlay) {
+          helpOpen.addEventListener('click', () => helpOverlay.classList.add('show'));
+        }
+        
+        if (helpClose && helpOverlay) {
+          helpClose.addEventListener('click', () => helpOverlay.classList.remove('show'));
+        }
+        
+        if (helpBackdrop && helpOverlay) {
+          helpBackdrop.addEventListener('click', () => helpOverlay.classList.remove('show'));
+        }
+        
+        // Collapsible help sections
+        document.querySelectorAll('.help-toggle').forEach(toggle => {
+          toggle.addEventListener('click', () => {
+            const content = toggle.nextElementSibling;
+            if (content && content.classList.contains('help-content')) {
+              content.classList.toggle('show');
+            }
+          });
+        });
+
+        // ============================================================
+        // FEATURE INITIALIZATION (AFTER SLIGHT DELAY)
+        // ============================================================
+        setTimeout(() => {
+          if(!window.Features) return;
+          
+          // Measure tool
+          const measureBtn = document.getElementById('measure-tool');
+          if(measureBtn) {
+            measureBtn.addEventListener('click', () => {
+              window.Features.Measure.toggle();
+              measureBtn.classList.toggle('active');
+            });
+          }
+          
+          // Auto-save toggle
+          const autosaveBtn = document.getElementById('autosave-toggle');
+          if(autosaveBtn) {
+            autosaveBtn.addEventListener('click', () => {
+              if(window.Features.AutoSave.enabled) {
+                window.Features.AutoSave.disable();
+                autosaveBtn.textContent = 'Auto-Save: OFF';
+              } else {
+                window.Features.AutoSave.enable();
+                autosaveBtn.textContent = 'Auto-Save: ON';
+              }
+            });
+          }
+          
+          // Load auto-save
+          const loadAutosaveBtn = document.getElementById('load-autosave');
+          if(loadAutosaveBtn) {
+            loadAutosaveBtn.addEventListener('click', () => window.Features.AutoSave.load());
+          }
+          
+          // Export CSV
+          const exportCsvBtn = document.getElementById('export-csv');
+          if(exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', () => window.Features.exportCSV());
+          }
+          
+          // Theme toggle
+          const themeBtn = document.getElementById('theme-toggle');
+          if(themeBtn) {
+            themeBtn.addEventListener('click', () => {
+              window.Features.Theme.toggle();
+            });
+          }
+          
+          // Stats overlay toggle
+          const statsBtn = document.getElementById('show-stats');
+          if(statsBtn) {
+            let showing = false;
+            statsBtn.addEventListener('click', () => {
+              showing = !showing;
+              const statsDisplay = document.getElementById('stats-display');
+              if(statsDisplay) statsDisplay.style.display = showing ? 'block' : 'none';
+              statsBtn.classList.toggle('active');
+            });
+          }
+          
+          // Update stats periodically
+          setInterval(() => {
+            if(window.Features && window.Features.Stats) window.Features.Stats.update();
+            if(window.Features && window.Features.FPS) window.Features.FPS.tick();
+          }, 16);
+          
+        }, 500);
+        
+      }, 100);
+    });
+  });
+  </script>
+
+  <!-- ============================================================ -->
+  <!-- FOOTER -->
+  <!-- ============================================================ -->
+  <footer>
+    MapPlanner - Designed by RëDπαgοπ [DxL-677]
+  </footer>
+
+</body>
+</html>
