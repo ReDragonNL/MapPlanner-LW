@@ -183,7 +183,7 @@
       <div class="modal-row compact">
         <label>Label</label>
         <input type="text" id="pm-label" placeholder="e.g., P1" style="flex:1">
-        <label style="margin-left:10px;">Area</label>
+        <label style="margin-left:10px;">Glow</label>
         <input type="checkbox" id="pm-glow" checked>
       </div>
 
@@ -406,12 +406,14 @@
   </div>
 
   <!-- ============================================================ -->
-  <!-- JAVASCRIPT FILES -->
+  <!-- JAVASCRIPT FILES - FIXED ORDER -->
   <!-- ============================================================ -->
-	<script src="app-core.js"></script>
-	<script src="app-ui.js"></script>
-	<script src="app-features.js"></script>  <!-- ADD THIS LINE -->
-	<script src="app-main.js"></script>
+  <script src="elements-config.js"></script>  <!-- LOAD FIRST - Config must be loaded before helper -->
+  <script src="elements-helper.js"></script>  <!-- LOAD SECOND - Uses config -->
+  <script src="app-core.js"></script>
+  <script src="app-ui.js"></script>
+  <script src="app-features.js"></script>
+  <script src="app-main.js"></script>
 
   <!-- ============================================================ -->
   <!-- INITIALIZATION SCRIPT -->
