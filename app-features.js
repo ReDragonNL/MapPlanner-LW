@@ -1,7 +1,7 @@
 // ============================================================
 // FEATURES MODULE - MapPlanner
 // Advanced features: Measure, AutoSave, Export, Theme, Stats
-// PATCHED: Fixed measure tool click handler
+// FIXED: Measure tool - removed duplicate event handlers
 // ============================================================
 
 (function(){
@@ -11,21 +11,19 @@
   function getCore() { return window.Core; }
 
   // ============================================================
-  // MEASURE TOOL (WITH VISUAL LINE) - PATCHED
+  // MEASURE TOOL (WITH VISUAL LINE) - FIXED
   // ============================================================
   Features.Measure = {
     enabled: false,
-    active: false,  // Added to track active state
+    active: false,
     firstPoint: null,
     firstWorld: null,
     currentWorld: null,
-    mouseMoveHandler: null,
-    clickHandler: null,
     previousMode: null, 
     
     toggle() {
       this.enabled = !this.enabled;
-      this.active = this.enabled;  // Sync active state
+      this.active = this.enabled;
       this.firstPoint = null;
       this.firstWorld = null;
       this.currentWorld = null;
@@ -44,96 +42,37 @@
           window.setMode('view');
         }
         
-        window.UI.Toast.info('Measure tool enabled - Click two points. Right-click to exit.');
-        document.getElementById('board').style.cursor = 'crosshair';
-        this.setupListeners();
+        const board = document.getElementById('board');
+        if(board) board.style.cursor = 'crosshair';
+        
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.info('Measure tool enabled - Click two points. Right-click to exit.');
+        }
       } else {
         // Restore previous mode
         if(window.setMode && this.previousMode) {
           window.setMode(this.previousMode);
         }
         
-        window.UI.Toast.info('Measure tool disabled');
-        document.getElementById('board').style.cursor = 'default';
-        this.removeListeners();
-        window.Draw.render();
-      }
-    },
-    
-    setupListeners() {
-      const canvas = document.getElementById('board');
-      
-      // Mouse move handler - shows the line as you move
-      this.mouseMoveHandler = (e) => {
-        if(!this.enabled || !this.firstPoint) return;
+        const board = document.getElementById('board');
+        if(board) board.style.cursor = 'default';
         
-        const Core = getCore();
-        const world = Core.screenToWorld(e.clientX, e.clientY);
-        this.currentWorld = world;
-        
-        // Mark dirty and trigger immediate render to show the line
-        Core.markDirty('view');
-        if(window.Draw && window.Draw.renderImmediate) {
-          window.Draw.renderImmediate();
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.info('Measure tool disabled');
         }
-      };
-      
-      // Click handler - sets points (PATCHED)
-      this.clickHandler = (e) => {
-        if(!this.enabled) return;
         
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const Core = getCore();
-        const rc = Core.evtRC(e);
-        const world = Core.screenToWorld(e.clientX, e.clientY);
-        
-        if(!this.firstPoint) {
-          // First click - set starting point
-          this.firstPoint = rc;
-          this.firstWorld = world;
-          this.currentWorld = world;
-          window.UI.Toast.info(`First point: Row ${rc.r}, Col ${rc.c}`);
-        } else {
-          // Second click - calculate and show distance
-          const dr = Math.abs(rc.r - this.firstPoint.r);
-          const dc = Math.abs(rc.c - this.firstPoint.c);
-          const dist = Math.sqrt(dr * dr + dc * dc).toFixed(2);
-          
-          window.UI.Toast.success(`Distance: ${dist} tiles (${dr} rows, ${dc} cols)`, 'success', 5000);
-          
-          // Reset for next measurement
-          this.firstPoint = null;
-          this.firstWorld = null;
-          this.currentWorld = null;
+        if(window.Draw && window.Draw.render) {
           window.Draw.render();
         }
-      };
-      
-      canvas.addEventListener('pointermove', this.mouseMoveHandler, { passive: false });
-      canvas.addEventListener('click', this.clickHandler);
-    },
-    
-    removeListeners() {
-      const canvas = document.getElementById('board');
-      
-      if(this.mouseMoveHandler) {
-        canvas.removeEventListener('mousemove', this.mouseMoveHandler);
-        this.mouseMoveHandler = null;
-      }
-      
-      if(this.clickHandler) {
-        canvas.removeEventListener('click', this.clickHandler);
-        this.clickHandler = null;
       }
     },
     
-    // PATCHED: Added handleClick method for compatibility
     handleClick(rc, clientX, clientY) {
       if(!this.enabled) return false;
       
       const Core = getCore();
+      if(!Core) return false;
+      
       const world = Core.screenToWorld(clientX, clientY);
       
       if(!this.firstPoint) {
@@ -159,8 +98,27 @@
         this.firstPoint = null;
         this.firstWorld = null;
         this.currentWorld = null;
-        window.Draw.render();
+        
+        if(window.Draw && window.Draw.render) {
+          window.Draw.render();
+        }
         return true;
+      }
+    },
+    
+    handleMouseMove(clientX, clientY) {
+      if(!this.enabled || !this.firstPoint) return;
+      
+      const Core = getCore();
+      if(!Core) return;
+      
+      const world = Core.screenToWorld(clientX, clientY);
+      this.currentWorld = world;
+      
+      // Mark dirty and trigger immediate render to show the line
+      Core.markDirty('view');
+      if(window.Draw && window.Draw.renderImmediate) {
+        window.Draw.renderImmediate();
       }
     },
     
@@ -169,6 +127,7 @@
       if(!this.enabled || !this.firstWorld || !this.currentWorld) return;
       
       const Core = getCore();
+      if(!Core) return;
       
       ctx.save();
       
@@ -241,7 +200,9 @@
     enable() {
       this.enabled = true;
       this.interval = setInterval(() => this.save(), 30000);
-      window.UI.Toast.success('Auto-save enabled (every 30s)');
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.success('Auto-save enabled (every 30s)');
+      }
     },
     
     disable() {
@@ -250,11 +211,15 @@
         clearInterval(this.interval);
         this.interval = null;
       }
-      window.UI.Toast.info('Auto-save disabled');
+      if(window.UI && window.UI.Toast) {
+        window.UI.Toast.info('Auto-save disabled');
+      }
     },
     
     save() {
       const Core = getCore();
+      if(!Core) return;
+      
       const data = {
         items: Core.items,
         idSeq: Core.idSeq,
@@ -269,7 +234,9 @@
         console.log('Auto-saved at', this.lastSave.toLocaleTimeString());
       } catch(e) {
         console.error('Auto-save failed:', e);
-        window.UI.Toast.error('Auto-save failed - storage full?');
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.error('Auto-save failed - storage full?');
+        }
       }
     },
     
@@ -277,12 +244,15 @@
       try {
         const saved = localStorage.getItem('mapplanner_autosave');
         if(!saved) {
-          window.UI.Toast.warning('No auto-save found');
+          if(window.UI && window.UI.Toast) {
+            window.UI.Toast.warning('No auto-save found');
+          }
           return false;
         }
         
         const data = JSON.parse(saved);
         const Core = getCore();
+        if(!Core) return false;
         
         if(Number.isFinite(data.gridSize)) {
           Core.setGridSize(data.gridSize, {scale: false});
@@ -294,16 +264,26 @@
         
         Core.markDirty('items');
         Core.markDirty('legend');
-        window.Draw.render();
-        window.UI.updateLegend();
-        Core.fitView();
+        if(window.Draw && window.Draw.render) {
+          window.Draw.render();
+        }
+        if(window.UI && window.UI.updateLegend) {
+          window.UI.updateLegend();
+        }
+        if(Core.fitView) {
+          Core.fitView();
+        }
         
         const time = new Date(data.timestamp).toLocaleString();
-        window.UI.Toast.success(`Loaded auto-save from ${time}`);
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.success(`Loaded auto-save from ${time}`);
+        }
         return true;
       } catch(err) {
         console.error('Failed to load auto-save:', err);
-        window.UI.Toast.error('Failed to load auto-save');
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.error('Failed to load auto-save');
+        }
         return false;
       }
     }
@@ -314,6 +294,7 @@
   // ============================================================
   Features.exportCSV = function() {
     const Core = getCore();
+    if(!Core) return;
     
     const headers = ['ID', 'Type', 'Row', 'Col', 'Size', 'Label', 'Color', 'Order'];
     const rows = [headers];
@@ -340,7 +321,9 @@
     a.click();
     URL.revokeObjectURL(a.href);
     
-    window.UI.Toast.success('CSV exported');
+    if(window.UI && window.UI.Toast) {
+      window.UI.Toast.success('CSV exported');
+    }
   };
 
   // ============================================================
@@ -354,10 +337,14 @@
       
       if(this.current === 'light') {
         document.body.classList.add('light-theme');
-        window.UI.Toast.info('Light theme enabled');
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.info('Light theme enabled');
+        }
       } else {
         document.body.classList.remove('light-theme');
-        window.UI.Toast.info('Dark theme enabled');
+        if(window.UI && window.UI.Toast) {
+          window.UI.Toast.info('Dark theme enabled');
+        }
       }
       
       try {
@@ -395,7 +382,7 @@
       const yCount = Core.items.filter(i => i.type === 'Y').length;
       const pCount = Core.items.filter(i => i.type === 'P').length;
       const total = Core.items.length;
-      const selected = Core.selected.size;
+      const selected = Core.selected ? Core.selected.size : 0;
       
       statsDisplay.innerHTML = `
         <div>FPS: <span id="fps-counter">${Features.FPS.current}</span></div>
