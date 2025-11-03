@@ -819,13 +819,29 @@ Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
   // SHOW ELEMENTS DROPDOWN AS FLYOUT (FOR CONTEXT MENU)
   // ============================================================
   UI.showElementsDropdownAt = function(x, y) {
-    const Core = getCore();
-    hideContextMenu(); // Close the main context menu first
-    
-  UI.showElementsDropdownAt = function(x, y) {
   const Core = getCore();
   hideContextMenu(); // close main menu
   const EP = window.ElementPresets || {};
+  const menuItems = Object.entries(EP).map(([key, cfg]) => ({
+    label: cfg.menuLabel || cfg.label || key,
+    action: () => {
+      // compute rc from canvas center
+      const canvas = document.getElementById('board');
+      if (!canvas || !Core) return;
+      const rect   = canvas.getBoundingClientRect();
+      const cx     = rect.left + rect.width / 2;
+      const cy     = rect.top + rect.height  / 2;
+      const world  = Core.screenToWorld(cx, cy);
+      const rc     = Core.worldToRC(world.x, world.y);
+      Core.pushUndo(true);
+      Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
+      Core.markDirty('items');
+      if (window.Draw) window.Draw.render();
+      if (window.UI?.Toast) window.UI.Toast.success(`${cfg.label || key} added`);
+    }
+  }));
+  showContextMenu(x, y, menuItems);
+};
   const menuItems = Object.entries(EP).map(([key, cfg]) => ({
     label: cfg.menuLabel || cfg.label || key,
     action: () => {
