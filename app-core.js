@@ -1617,164 +1617,27 @@ function handleContextMenu(e){
 
   const items = [];
 
-if (isDraw) {
-  // Draw mode menu: expanded with all elements
-  items.push(
-    { icon:'➕', label:'Add Custom Point', action:()=>{ const b=document.getElementById('add-point'); if(b) b.click(); } },
-    'divider',
-    { icon:'🛡️', label:'Alliance Center (9×9)', action:()=>{ addPresetElement('alliance'); } },
-    { icon:'💧', label:'Lake S4 (11×9)', action:()=>{ addPresetElement('lake'); } },
-    { icon:'⛏️', label:'Mine (1×1)', action:()=>{ addPresetElement('mine'); } },
-    { icon:'⛰️', label:'Mountain (17×18)', action:()=>{ addPresetElement('mountain'); } },
-    { icon:'🔮', label:'Secret Task (3×3)', action:()=>{ addPresetElement('secret'); } },
-    { icon:'🏰', label:'Stronghold (5×5)', action:()=>{ addPresetElement('stronghold'); } },
-    { icon:'🪙', label:'Trade Post (5×4)', action:()=>{ addPresetElement('tradepost'); } },
-    'divider',
-    { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
-    { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
-  );
-
+// Draw mode menu: expanded with all elements
   showDToolsContextMenu(x, y, items);
   return;
 }
 
 // Helper function to add preset elements
-function addPresetElement(preset) {
-  const Core = getCore();
-  const canvas = document.getElementById('board');
-  const rect = canvas.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const world = Core.screenToWorld(cx, cy);
-  const rc = Core.worldToRC(world.x, world.y);
-
-  Core.pushUndo(true);
-
-const presets = {
-    alliance: { 
-      sizeW: 9, sizeH: 9, 
-      label: 'Alliance', 
-      color: '#4363d8', 
-      image: './images/alliance-center-s4.png',
-      area: 17,
-      fillAlpha: 50,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 30,
-      areaColor: '#4363d8',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: true
-    },
-    lake: { 
-      sizeW: 11, sizeH: 9, 
-      label: 'Lake S4', 
-      color: '#46f0f0', 
-      image: './images/lake-s4.png',
-      area: 15,
-      fillAlpha: 60,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 25,
-      areaColor: '#46f0f0',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: false
-    },
-    mine: { 
-      sizeW: 1, sizeH: 1, 
-      label: 'Mine', 
-      color: '#9a6324', 
-      image: null,
-      area: 5,
-      fillAlpha: 100,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 30,
-      areaColor: '#9a6324',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: false
-    },
-    mountain: { 
-      sizeW: 17, sizeH: 18, 
-      label: 'Mountain', 
-      color: '#800000', 
-      image: './images/mountain-s4.png',
-      area: 20,
-      fillAlpha: 40,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 20,
-      areaColor: '#800000',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: false
-    },
-    secret: { 
-      sizeW: 3, sizeH: 3, 
-      label: 'Secret Task', 
-      color: '#f032e6', 
-      image: './images/secret-task.png',
-      area: 8,
-      fillAlpha: 70,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 35,
-      areaColor: '#f032e6',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: false
-    },
-    stronghold: {
-      sizeW: 5, sizeH: 5,
-      label: 'Stronghold', 
-      color: '#f032e6', 
-      image: './images/Stronghold.png',
-      area: 8,
-      fillAlpha: 70,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 35,
-      areaColor: '#f032e6',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: true
-    },
-    tradepost: {
-      sizeW: 5, sizeH: 4,
-      label: 'Trade Post', 
-      color: '#f58231',
-      image: './images/TradePost.png',
-      area: 6,
-      fillAlpha: 70,
-      borderAlpha: 100,
-      borderWidth: 1,
-      borderColor: '#000000',
-      areaAlpha: 35,
-      areaColor: '#f58231',
-      areaBorderAlpha: 100,
-      areaBorderWidth: 2,
-      glow: true
-    }
-  };
-  
-  const config = presets[preset];
-  if (config) {
-    Core.addPoint(Math.round(rc.r), Math.round(rc.c), config);
-    if (window.UI && window.UI.Toast) {
-      window.UI.Toast.success(`${config.label} added`);
-    }
-    Core.markDirty('items');
-    if (window.Draw) window.Draw.render();
+function addPresetElement(presetKey) {
+  const EP = window.ElementPresets || {};
+  const cfg = EP[presetKey];
+  if (!cfg) {
+    console.warn('Unknown preset:', presetKey);
+    return;
   }
+  const { rc } = getCanvasCenterRC(); // or reuse your existing code to compute rc
+  Core.pushUndo(true);
+  Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
+  Core.markDirty('items');
+  if (window.Draw) window.Draw.render();
+  if (window.UI?.Toast) window.UI.Toast.success(`${cfg.label || presetKey} added`);
 }
+
 
   // Select mode menu (order exactly as requested)
   items.push(
