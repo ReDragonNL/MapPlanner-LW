@@ -254,25 +254,23 @@
       contextMenu.remove();
       contextMenu = null;
     }
-
-// -------------------------------------------------------------
-// AUTO-HIDE CONTEXT MENU (outside click, right-click elsewhere, Esc)
-// -------------------------------------------------------------
-document.addEventListener('click', (e) => {
-  const inFlyout = e.target.closest('[data-ctx-flyout="points"]');
-  if (contextMenu && !(contextMenu.contains(e.target) || inFlyout)) {
-    hideContextMenu();
   }
-});
 
+  // -------------------------------------------------------------
+  // AUTO-HIDE CONTEXT MENU (outside click, right-click elsewhere, Esc)
+  // -------------------------------------------------------------
+  document.addEventListener('click', (e) => {
+    const inFlyout = e.target.closest('[data-ctx-flyout="points"]');
+    if (contextMenu && !(contextMenu.contains(e.target) || inFlyout)) {
+      hideContextMenu();
+    }
+  });
 
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    hideContextMenu();
-  }
-});
-
-  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      hideContextMenu();
+    }
+  });
   
 	document.addEventListener('contextmenu', (e) => {
 	  // if the right-click is on the grid in draw mode, let our handler take over
@@ -828,25 +826,6 @@ Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
       // compute rc from canvas center
       const canvas = document.getElementById('board');
       if (!canvas || !Core) return;
-      const rect   = canvas.getBoundingClientRect();
-      const cx     = rect.left + rect.width / 2;
-      const cy     = rect.top + rect.height  / 2;
-      const world  = Core.screenToWorld(cx, cy);
-      const rc     = Core.worldToRC(world.x, world.y);
-      Core.pushUndo(true);
-      Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
-      Core.markDirty('items');
-      if (window.Draw) window.Draw.render();
-      if (window.UI?.Toast) window.UI.Toast.success(`${cfg.label || key} added`);
-    }
-  }));
-  showContextMenu(x, y, menuItems);
-};
-  const menuItems = Object.entries(EP).map(([key, cfg]) => ({
-    label: cfg.menuLabel || cfg.label || key,
-    action: () => {
-      // compute rc from canvas center
-      const canvas = document.getElementById('board');
       const rect   = canvas.getBoundingClientRect();
       const cx     = rect.left + rect.width / 2;
       const cy     = rect.top + rect.height  / 2;
