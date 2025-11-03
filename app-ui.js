@@ -447,35 +447,15 @@ document.addEventListener('keydown', (e) => {
 		  Core.pushUndo(true);
 
 		  // Add based on preset (with local images)
-		  if (preset === 'alliance') {
-			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-			  sizeW: 9, sizeH: 9, label: 'Alliance', color: '#4363d8',
-			  image: './images/alliance-center-s4.png'
-			});
-		  } else if (preset === 'lake') {
-			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-			  sizeW: 11, sizeH: 9, label: 'Lake S4', color: '#46f0f0',
-			  image: './images/lake-s4.png'
-			});
-		  } else if (preset === 'mine') {
-			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-			  sizeW: 1, sizeH: 1, label: 'Mine', color: '#9a6324',
-			  image: null  // No image for mine in your folder
-			});
-		  } else if (preset === 'mountain') {
-			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-			  sizeW: 17, sizeH: 18, label: 'Mountain', color: '#800000',
-			  image: './images/mountain-s4.png'
-			});
-		  } else if (preset === 'secret') {
-			Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-			  sizeW: 3, sizeH: 3, label: 'Secret Task', color: '#f032e6',
-			  image: './images/secret-task.png'
-			});
-		  } else {
-			console.warn(`Unknown preset: ${preset}`);
-			return;
-		  }
+		  // Add based on ElementPresets
+const EP = window.ElementPresets || {};
+const cfg = EP[preset];
+if (!cfg) {
+  console.warn('Unknown preset:', preset);
+  return;
+}
+Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
+
 
 		  window.UI.Toast.success(`${preset} added`);
 		  Core.markDirty('items');
@@ -842,63 +822,30 @@ document.addEventListener('keydown', (e) => {
     const Core = getCore();
     hideContextMenu(); // Close the main context menu first
     
-    const items = [
-      { label: 'Alliance Center (9×9)', preset: 'alliance' },
-      { label: 'Lake S4 (11×9)', preset: 'lake' },
-      { label: 'Mine (1×1)', preset: 'mine' },
-      { label: 'Mountain (17×18)', preset: 'mountain' },
-      { label: 'Secret Task (3×3)', preset: 'secret' }
-    ];
-    
-    const menuItems = items.map(item => ({
-      label: item.label,
-      action: () => {
-        // Get center of canvas
-        const canvas = document.getElementById('board');
-        const rect = canvas.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const world = Core.screenToWorld(cx, cy);
-        const rc = Core.worldToRC(world.x, world.y);
+  UI.showElementsDropdownAt = function(x, y) {
+  const Core = getCore();
+  hideContextMenu(); // close main menu
+  const EP = window.ElementPresets || {};
+  const menuItems = Object.entries(EP).map(([key, cfg]) => ({
+    label: cfg.menuLabel || cfg.label || key,
+    action: () => {
+      // compute rc from canvas center
+      const canvas = document.getElementById('board');
+      const rect   = canvas.getBoundingClientRect();
+      const cx     = rect.left + rect.width / 2;
+      const cy     = rect.top + rect.height  / 2;
+      const world  = Core.screenToWorld(cx, cy);
+      const rc     = Core.worldToRC(world.x, world.y);
+      Core.pushUndo(true);
+      Core.addPoint(Math.round(rc.r), Math.round(rc.c), cfg);
+      Core.markDirty('items');
+      if (window.Draw) window.Draw.render();
+      if (window.UI?.Toast) window.UI.Toast.success(`${cfg.label || key} added`);
+    }
+  }));
+  showContextMenu(x, y, menuItems);
+};
 
-        Core.pushUndo(true);
-
-        // Add based on preset (with local images)
-        if (item.preset === 'alliance') {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-            sizeW: 9, sizeH: 9, label: 'Alliance', color: '#4363d8',
-            image: './images/alliance-center-s4.png'
-          });
-        } else if (item.preset === 'lake') {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-            sizeW: 11, sizeH: 9, label: 'Lake S4', color: '#46f0f0',
-            image: './images/lake-s4.png'
-          });
-        } else if (item.preset === 'mine') {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-            sizeW: 1, sizeH: 1, label: 'Mine', color: '#9a6324',
-            image: null
-          });
-        } else if (item.preset === 'mountain') {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-            sizeW: 17, sizeH: 18, label: 'Mountain', color: '#800000',
-            image: './images/mountain-s4.png'
-          });
-        } else if (item.preset === 'secret') {
-          Core.addPoint(Math.round(rc.r), Math.round(rc.c), {
-            sizeW: 3, sizeH: 3, label: 'Secret Task', color: '#f032e6',
-            image: './images/secret-task.png'
-          });
-        }
-
-        window.UI.Toast.success(`${item.preset} added`);
-        Core.markDirty('items');
-        window.Draw.render();
-      }
-    }));
-    
-    showContextMenu(x, y, menuItems);
-  };
 
   // ============================================================
   // EXPORT UI OBJECT
