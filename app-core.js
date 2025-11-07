@@ -1568,6 +1568,7 @@ function loadImage(src, callback) {
       items.push(
         'divider',
         { icon:'🔲', label:'Select All', action:()=>{ const b=getById('select-all-btn'); if(b) b.click(); } },
+		{ icon:'✖', label:'Delete',   action:()=>{ const b=getById('delete-selected'); if(b) b.click(); }, disabled: selectedCount === 0 },
         { icon:'🗑️', label:'Clear All', action:()=>{ const b=document.getElementById('clear'); if(b) b.click(); } }
       );
 
